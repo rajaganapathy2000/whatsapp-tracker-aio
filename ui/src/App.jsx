@@ -3,7 +3,8 @@ import {
   Home, Settings, User, Plus, Wifi, WifiOff, 
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
-  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette
+  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette,
+  Battery, BatteryCharging
 } from 'lucide-react';
 
 export default function App() {
@@ -26,6 +27,9 @@ export default function App() {
   
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
+  
+  // NEW: Bot Health State
+  const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false });
 
   // Prevent stale closures in our debounce function
   const fetchLiveStateRef = useRef();
@@ -93,8 +97,17 @@ export default function App() {
     
     const configRes = await mongoFetch('findOne', 'system_config', { _id: 'main_config' });
     const contactsRes = await mongoFetch('findOne', 'system_config', { _id: 'contacts_map' });
+    const healthRes = await mongoFetch('findOne', 'system_config', { _id: 'bot_health' });
+    
     const configDoc = configRes?.document || { targets: [], muted: [] };
     const contactsDoc = contactsRes?.document?.contacts || {};
+
+    if (healthRes?.document) {
+      setBotHealth({
+        battery: healthRes.document.battery ?? null,
+        isCharging: healthRes.document.isCharging ?? false,
+      });
+    }
 
     const sessionsRes = await mongoFetch('find', 'pending_sessions', {}, {}, 100);
     const activeSessions = sessionsRes?.documents || [];
@@ -296,7 +309,7 @@ export default function App() {
               onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
             />
           ) : activeTab === 'dashboard' ? (
-            <DashboardView targets={targets} pingStats={pingStats} isPrivacyMode={isPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
+            <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
           ) : activeTab === 'compare' ? (
             <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} />
           ) : (
@@ -332,7 +345,7 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-const DashboardView = memo(function DashboardView({ targets, pingStats, isPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
+const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
   const [searchTerm, setSearchTerm] = useState('');
   
   // Persist the sort option using localStorage
@@ -390,6 +403,12 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isPrivac
         <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
         <div className="flex flex-col items-end mr-12">
           <div className="flex space-x-2 mb-1">
+            {botHealth && botHealth.battery !== null && (
+              <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400">
+                {botHealth.isCharging ? <BatteryCharging size={10} className="fill-current" /> : <Battery size={10} className="fill-current" />}
+                <span>{botHealth.battery}%</span>
+              </div>
+            )}
             {pingStats.wsStatus === 'Live' && (
               <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
                 <Zap size={10} className="fill-current" /> Live
