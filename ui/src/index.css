@@ -16,20 +16,19 @@
   }
 }
 
-/* 3. Glossy Glassmorphism Utility (Apple Vision/iOS 18 Style) */
+/* 3. Glossy Glassmorphism Utility (Optimized for Mobile) */
 @utility glass-card {
-  @apply bg-white/60 dark:bg-gray-900/50 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
+  @apply bg-white/60 dark:bg-gray-900/50 backdrop-blur-md border border-white/40 dark:border-white/10 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
 }
 
 @utility glass-panel {
-  @apply bg-white/40 dark:bg-black/40 backdrop-blur-3xl border border-white/50 dark:border-white/5 shadow-2xl;
+  @apply bg-white/40 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/5 shadow-2xl;
 }
 
-/* 4. Liquid Background Animation */
+/* 4. Liquid Background Animation (Optimized to reduce GPU load) */
 @keyframes liquid {
   0% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -50px) scale(1.1); }
-  66% { transform: translate(-20px, 20px) scale(0.9); }
+  50% { transform: translate(15px, -25px) scale(1.05); }
   100% { transform: translate(0, 0) scale(1); }
 }
 
@@ -42,7 +41,7 @@
   z-index: -1;
   overflow: hidden;
   background: #f0f2f5;
-  transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.8s ease-in-out;
 }
 
 .dark .liquid-bg {
@@ -51,12 +50,12 @@
 
 .blob {
   position: absolute;
-  width: 600px;
-  height: 600px;
+  width: 500px;
+  height: 500px;
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
-  filter: blur(80px);
+  filter: blur(60px);
   border-radius: 50%;
-  animation: liquid 25s infinite alternate ease-in-out;
+  animation: liquid 30s infinite alternate ease-in-out;
 }
 
 .blob-2 {
@@ -82,6 +81,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* Use dynamic viewport height for mobile browsers */
 }
 
 /* Fix for inputs in light mode */

@@ -262,8 +262,8 @@ export default function App() {
         <div className="blob blob-3 transform-gpu will-change-transform"></div>
       </div>
 
-      <div className="flex flex-col h-screen max-w-md mx-auto text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative transition-colors duration-300">
-        <div className="flex-1 overflow-y-auto pb-24 scrollbar-hide z-10 transform-gpu">
+      <div className="flex flex-col h-[100dvh] max-w-md mx-auto text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative transition-colors duration-300">
+        <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10 transform-gpu">
           {viewingTarget ? (
             <TargetDetailView 
               target={targets.find(t => t.id === viewingTarget)} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
@@ -643,12 +643,12 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
 
 const TargetCard = memo(function TargetCard({ target, onClick, isPinnedItem }) {
   return (
-    <div onClick={onClick} className="glass-card rounded-[24px] p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-white/70 dark:hover:bg-gray-800/60 transform-gpu will-change-transform">
+    <div onClick={onClick} className="glass-card rounded-[24px] p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-white/70 dark:hover:bg-gray-800/60">
       {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
       <div className="relative mr-4">
         <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.4)]' : 'border-gray-300 dark:border-gray-600'} bg-white/60 dark:bg-black/50 backdrop-blur-sm relative transition-all`}>
           <span className="text-lg font-bold text-gray-500 dark:text-gray-400 group-hover:text-blue-500 transition-colors">{target.name.charAt(0).toUpperCase()}</span>
-          {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30 transform-gpu"></span>}
+          {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
         </div>
         <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-900 flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}>
           {target.isOnline ? <Wifi size={10} color="white" className="relative z-10" /> : <WifiOff size={10} color="white" />}
@@ -660,7 +660,7 @@ const TargetCard = memo(function TargetCard({ target, onClick, isPinnedItem }) {
       </div>
       <div className="text-right flex flex-col items-end pl-2">
         <div className="bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 font-bold text-sm px-3 py-1 rounded-xl mb-1 shadow-sm backdrop-blur-sm">{target.totalTime}</div>
-        <ChevronRight size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors transform-gpu" />
+        <ChevronRight size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
       </div>
     </div>
   );
@@ -736,7 +736,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   };
 
   return (
-    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col relative z-10 transform-gpu">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 h-[100dvh] flex flex-col relative z-10 transform-gpu">
       <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white mb-6 drop-shadow-sm">Compare</h1>
 
       <div className="glass-card rounded-3xl p-4 mb-6 space-y-4">
@@ -760,7 +760,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
         <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-2.5 bg-black/5 dark:bg-white/10 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90 transform-gpu"><ChevronRight size={18} /></button>
       </div>
 
-      <div className="glass-card rounded-3xl p-5 flex-1 relative overflow-hidden flex flex-col">
+      <div className="glass-card rounded-3xl p-5 flex-1 relative overflow-hidden flex flex-col mb-16">
         {isLoading && <div className="absolute inset-0 bg-white/40 dark:bg-black/40 z-20 flex items-center justify-center backdrop-blur-md"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
         
         <div className="text-center mb-6 pt-2">
@@ -794,7 +794,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
 
 const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, newTarget, setNewTarget, handleAddTarget, pingStats }) {
   return (
-    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 transform-gpu">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 transform-gpu mb-24">
       <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white mb-6 drop-shadow-sm">Settings</h1>
       
       <div className="mb-6">
