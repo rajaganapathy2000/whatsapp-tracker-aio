@@ -262,7 +262,8 @@ export default function App() {
         <div className="blob blob-3 transform-gpu will-change-transform"></div>
       </div>
 
-      <div className="flex flex-col h-[100dvh] max-w-md mx-auto text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative transition-colors duration-300">
+      {/* Removed the slow duration-300 transition class to instantly snap themes and avoid UI lag */}
+      <div className="flex flex-col h-[100dvh] max-w-md mx-auto text-gray-900 dark:text-gray-100 font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10 transform-gpu">
           {viewingTarget ? (
             <TargetDetailView 
@@ -303,7 +304,13 @@ export default function App() {
 
 const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncing, onTargetClick, reorderPinned }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortOption, setSortOption] = useState('default');
+  
+  // Persist the sort option using localStorage
+  const [sortOption, setSortOption] = useState(() => localStorage.getItem('waTrackerSort') || 'default');
+
+  useEffect(() => {
+    localStorage.setItem('waTrackerSort', sortOption);
+  }, [sortOption]);
 
   // Heavily optimized sorting/filtering cached via useMemo
   const { pinnedTargets, otherTargets } = useMemo(() => {
@@ -342,7 +349,8 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
   const handleDragStart = (e, index) => { dragItem.current = index; };
   const handleDragEnter = (e, index) => { dragOverItem.current = index; };
   const handleDragEnd = () => {
-    if(dragItem.current !== undefined && dragOverItem.current !== undefined && searchTerm === '' && sortOption === 'default') {
+    // Only block dragging if the user is actively using the search bar
+    if(dragItem.current !== undefined && dragOverItem.current !== undefined && searchTerm === '') {
       reorderPinned(dragItem.current, dragOverItem.current);
     }
     dragItem.current = undefined; dragOverItem.current = undefined;
@@ -401,8 +409,8 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
           <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-widest mb-3 flex items-center drop-shadow-sm"><Pin size={14} className="mr-1" /> Pinned</h3>
           <div className="space-y-3">
             {pinnedTargets.map((target, index) => (
-              <div key={target.id} draggable={searchTerm === '' && sortOption === 'default'} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className="relative group">
-                <TargetCard target={target} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === '' && sortOption === 'default'} />
+              <div key={target.id} draggable={searchTerm === ''} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className="relative group">
+                <TargetCard target={target} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} />
               </div>
             ))}
           </div>

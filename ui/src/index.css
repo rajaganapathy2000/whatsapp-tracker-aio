@@ -73,7 +73,8 @@
 }
 
 body {
-  @apply transition-colors duration-500 m-0 antialiased overflow-hidden text-gray-900 dark:text-gray-100;
+  /* Removed the duration-500 class here so themes switch instantly without freezing the GPU */
+  @apply m-0 antialiased overflow-hidden text-gray-900 dark:text-gray-100;
   font-family: var(--font-sans);
 }
 
