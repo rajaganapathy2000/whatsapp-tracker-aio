@@ -1,44 +1,66 @@
 @import "tailwindcss";
 
-/* 1. Tailwind v4 Theme & Dark Mode Configuration */
+/* 1. TAILWIND THEME SETUP */
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 }
 
-/* 2. Custom Utility Classes */
+/* 2. THEME VARIABLE ENGINE */
+:root[data-theme='light-classic'] {
+  --bg-app: #f9fafb;      /* gray-50 */
+  --bg-card: #ffffff;     /* white */
+  --text-main: #111827;   /* gray-900 */
+}
+
+:root[data-theme='light-system'] {
+  --bg-app: #f5f7ff;      /* Very soft indigo tint */
+  --bg-card: #ffffff;
+  --text-main: #1e1b4b;   /* Deep indigo text */
+}
+
+:root[data-theme='dark-classic'] {
+  --bg-app: #0f172a;      /* slate-900 */
+  --bg-card: #1e293b;     /* slate-800 */
+  --text-main: #f8fafc;   /* slate-50 */
+}
+
+:root[data-theme='dark-amoled'] {
+  --bg-app: #000000;      /* Pure Black */
+  --bg-card: #121212;     /* Very dark gray */
+  --text-main: #ffffff;
+}
+
+/* 3. CORE UTILITIES */
 @utility scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
+  &::-webkit-scrollbar { display: none; }
 }
 
-/* 3. Solid Modern Cards (Zero Blur for Max Performance) */
 @utility glass-card {
-  @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-[24px];
+  @apply bg-card border border-gray-200 dark:border-gray-800 shadow-sm rounded-[24px];
 }
 
 @utility glass-panel {
-  @apply bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-xl;
+  @apply bg-app border border-gray-200 dark:border-gray-800 shadow-xl;
 }
 
-/* 4. Global App Styling */
+/* 4. GLOBAL MAPPING */
 body {
-  @apply m-0 antialiased overflow-hidden text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-950;
+  @apply m-0 antialiased overflow-hidden transition-colors duration-200;
+  background-color: var(--bg-app);
+  color: var(--text-main);
   font-family: var(--font-sans);
 }
+
+.bg-app { background-color: var(--bg-app); }
+.bg-card { background-color: var(--bg-card); }
+.text-app-text { color: var(--text-main); }
 
 #root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh; /* Dynamic viewport height for mobile browsers */
-}
-
-/* Fix for inputs in light mode */
-input::placeholder {
-  @apply text-gray-400 dark:text-gray-500;
+  height: 100dvh;
 }
