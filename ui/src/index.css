@@ -1,56 +1,52 @@
 @import "tailwindcss";
 
-/* 1. Theme Configuration Engine */
-:root {
-  --wa-bg: #f9fafb;
-  --wa-card: #ffffff;
-  --wa-text: #111827;
-  --wa-border: #e5e7eb;
-}
-
-/* Light Classic */
-.theme-light-classic {
-  --wa-bg: #f9fafb;
-  --wa-card: #ffffff;
-  --wa-text: #111827;
-  --wa-border: #e5e7eb;
-}
-
-/* Light Colorful (Tinted White) */
-.theme-light-colorful {
-  --wa-bg: #f4f5ff;
-  --wa-card: #ffffff;
-  --wa-text: #1e1b4b;
-  --wa-border: #e0e7ff;
-}
-
-/* Dark Amoled (Pitch Black) */
-.theme-dark-amoled {
-  --wa-bg: #000000;
-  --wa-card: #0a0a0a;
-  --wa-text: #f9fafb;
-  --wa-border: #1a1a1a;
-}
-
-/* Dark Colorful (Modern Slate) */
-.theme-dark-colorful {
-  --wa-bg: #0f172a;
-  --wa-card: #1e293b;
-  --wa-text: #f1f5f9;
-  --wa-border: #334155;
-}
-
-/* Apply Variables */
-.bg-var-bg { background-color: var(--wa-bg); }
-.bg-var-card { background-color: var(--wa-card); }
-.text-var-text { color: var(--wa-text); }
-.border-var-border { border-color: var(--wa-border); }
+/* 1. Tailwind v4 Theme & Dark Mode Configuration */
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* 2. Custom Utility Classes */
+/* 2. Theme Variable Definitions */
+:root {
+  --bg-app: #f9fafb;
+  --bg-card: #ffffff;
+  --border-color: #e5e7eb;
+  --text-main: #111827;
+}
+
+/* Light Colorful */
+[data-theme='light-colorful'] {
+  --bg-app: #f0f4ff;
+  --bg-card: #ffffff;
+  --border-color: #dbeafe;
+}
+
+/* Dark Classic (Grey) */
+[data-theme='dark-classic'] {
+  --bg-app: #1f2937;
+  --bg-card: #374151;
+  --border-color: #4b5563;
+  --text-main: #f9fafb;
+}
+
+/* Dark Colorful */
+[data-theme='dark-colorful'] {
+  --bg-app: #0f172a;
+  --bg-card: #1e293b;
+  --border-color: #334155;
+  --text-main: #f1f5f9;
+}
+
+/* Dark AMOLED */
+[data-theme='dark-amoled'] {
+  --bg-app: #000000;
+  --bg-card: #000000;
+  --border-color: #262626;
+  --text-main: #ffffff;
+}
+
+/* 3. Custom Utility Classes */
 @utility scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -59,18 +55,16 @@
   }
 }
 
-/* 3. Solid Modern Cards (Using CSS Variables) */
 @utility glass-card {
-  background-color: var(--wa-card);
-  border: 1px solid var(--wa-border);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  border-radius: 24px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  @apply shadow-sm rounded-[24px];
 }
 
 @utility glass-panel {
-  background-color: var(--wa-card);
-  border: 1px solid var(--wa-border);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  @apply shadow-xl;
 }
 
 /* 4. Global App Styling */
@@ -79,9 +73,13 @@ body {
   antialiased: true;
   overflow: hidden;
   font-family: var(--font-sans);
-  background-color: var(--wa-bg);
-  color: var(--wa-text);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+}
+
+.wa-app-container {
+  background-color: var(--bg-app);
+  color: var(--text-main);
 }
 
 #root {
@@ -91,7 +89,13 @@ body {
   height: 100dvh;
 }
 
-/* Input placeholder color adjustment */
 input::placeholder {
-  color: #9ca3af;
+  @apply text-gray-400 dark:text-gray-500;
+}
+
+/* Privacy Masking Styles */
+.privacy-blur {
+  filter: blur(8px);
+  user-select: none;
+  pointer-events: none;
 }

@@ -3,17 +3,18 @@ import {
   Home, Settings, User, Plus, Wifi, WifiOff, 
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
-  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2,
-  Eye, EyeOff
+  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  // Replaced isDarkMode with 4-way theme engine
-  const [theme, setTheme] = useState('light-classic');
-  const [isPrivacyMode, setIsPrivacyMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [viewingTarget, setViewingTarget] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // NEW: Theme and Privacy states
+  const [currentTheme, setCurrentTheme] = useState('light-classic');
+  const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
   const [targets, setTargets] = useState([]);
@@ -29,16 +30,25 @@ export default function App() {
     if (savedConfig) {
       const parsed = JSON.parse(savedConfig);
       if (parsed.apiConfig) setApiConfig(parsed.apiConfig);
-      if (parsed.theme) setTheme(parsed.theme);
+      if (parsed.isDarkMode !== undefined) setIsDarkMode(parsed.isDarkMode);
+      if (parsed.currentTheme) setCurrentTheme(parsed.currentTheme);
       if (parsed.isPrivacyMode !== undefined) setIsPrivacyMode(parsed.isPrivacyMode);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('waTrackerConfig', JSON.stringify({ apiConfig, theme, isPrivacyMode }));
-    // Apply theme class to document
-    document.documentElement.className = `theme-${theme}`;
-  }, [apiConfig, theme, isPrivacyMode]);
+    localStorage.setItem('waTrackerConfig', JSON.stringify({ 
+      apiConfig, isDarkMode, currentTheme, isPrivacyMode 
+    }));
+    
+    // Apply theme to document
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    if (currentTheme.startsWith('dark')) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [apiConfig, isDarkMode, currentTheme, isPrivacyMode]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
   const mongoFetch = useCallback(async (action, collection, query = {}, sort = {}, limit = null, update = {}) => {
@@ -256,42 +266,52 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-var-bg max-w-md mx-auto text-var-text font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative transition-colors duration-200">
-      <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10">
-        {viewingTarget ? (
-          <TargetDetailView 
-            target={targets.find(t => t.id === viewingTarget)} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
-            onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
-            isPrivacyMode={isPrivacyMode}
-          />
-        ) : activeTab === 'dashboard' ? (
-          <DashboardView 
-            targets={targets} pingStats={pingStats} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} 
-            isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode}
-          />
-        ) : activeTab === 'compare' ? (
-          <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} isPrivacyMode={isPrivacyMode} />
-        ) : (
-          <SettingsView 
-            apiConfig={apiConfig} setApiConfig={setApiConfig} theme={theme} setTheme={setTheme} 
-            newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} 
-          />
+    <div className={`wa-app-container`}>
+      <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
+        
+        {/* Stealth Mode Header Button */}
+        {!viewingTarget && (
+          <div className="absolute top-12 right-6 z-50">
+            <button onClick={() => setIsPrivacyMode(!isPrivacyMode)} className="p-3 glass-card rounded-full transition-all active:scale-90 text-gray-500">
+              {isPrivacyMode ? <EyeOff size={22} className="text-blue-500" /> : <Eye size={22} />}
+            </button>
+          </div>
         )}
-      </div>
 
-      <div className="absolute bottom-0 w-full glass-card border-x-0 border-b-0 rounded-b-[3rem] pb-safe pt-3 px-6 flex justify-around items-center z-50">
-        <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500'}`}>
-          <Home size={24} strokeWidth={activeTab === 'dashboard' && !viewingTarget ? 2.5 : 2} />
-          <span className="text-[10px] font-medium mt-1">Dashboard</span>
-        </button>
-        <button onClick={() => {setActiveTab('compare'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500'}`}>
-          <GitCompare size={24} strokeWidth={activeTab === 'compare' && !viewingTarget ? 2.5 : 2} />
-          <span className="text-[10px] font-medium mt-1">Compare</span>
-        </button>
-        <button onClick={() => {setActiveTab('settings'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500'}`}>
-          <Settings size={24} strokeWidth={activeTab === 'settings' && !viewingTarget ? 2.5 : 2} />
-          <span className="text-[10px] font-medium mt-1">Settings</span>
-        </button>
+        <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10">
+          {viewingTarget ? (
+            <TargetDetailView 
+              target={targets.find(t => t.id === viewingTarget)} isPrivacyMode={isPrivacyMode} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
+              onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
+            />
+          ) : activeTab === 'dashboard' ? (
+            <DashboardView targets={targets} pingStats={pingStats} isPrivacyMode={isPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
+          ) : activeTab === 'compare' ? (
+            <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} />
+          ) : (
+            <SettingsView 
+              apiConfig={apiConfig} setApiConfig={setApiConfig} 
+              isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} 
+              currentTheme={currentTheme} setCurrentTheme={setCurrentTheme}
+              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} 
+            />
+          )}
+        </div>
+
+        <div className="absolute bottom-0 w-full glass-card border-x-0 border-b-0 rounded-b-[3rem] pb-safe pt-3 px-6 flex justify-around items-center z-50">
+          <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+            <Home size={24} strokeWidth={activeTab === 'dashboard' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] font-medium mt-1">Dashboard</span>
+          </button>
+          <button onClick={() => {setActiveTab('compare'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+            <GitCompare size={24} strokeWidth={activeTab === 'compare' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] font-medium mt-1">Compare</span>
+          </button>
+          <button onClick={() => {setActiveTab('settings'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+            <Settings size={24} strokeWidth={activeTab === 'settings' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] font-medium mt-1">Settings</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -301,8 +321,10 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncing, onTargetClick, reorderPinned, isPrivacyMode, setIsPrivacyMode }) {
+const DashboardView = memo(function DashboardView({ targets, pingStats, isPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Persist the sort option using localStorage
   const [sortOption, setSortOption] = useState(() => localStorage.getItem('waTrackerSort') || 'default');
 
   useEffect(() => {
@@ -354,18 +376,8 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
   return (
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex justify-between items-start mb-4">
-        <div>
-          <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
-          {/* Privacy Toggle Button */}
-          <button 
-            onClick={() => setIsPrivacyMode(!isPrivacyMode)}
-            className="flex items-center space-x-1 mt-1 text-xs font-bold uppercase tracking-wider text-gray-500 hover:text-blue-500 transition-colors"
-          >
-            {isPrivacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
-            <span>{isPrivacyMode ? 'Privacy On' : 'Privacy Off'}</span>
-          </button>
-        </div>
-        <div className="flex flex-col items-end">
+        <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
+        <div className="flex flex-col items-end mr-12">
           <div className="flex space-x-2 mb-1">
             {pingStats.wsStatus === 'Live' && (
               <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
@@ -376,7 +388,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
               <RefreshCw size={10} className={`${isSyncing ? 'animate-spin' : ''} mr-1`} /> {pingStats.dbStatus}
             </div>
           </div>
-          <div className="flex items-center justify-end space-x-1 text-xs text-gray-500 font-mono">
+          <div className="flex items-center justify-end space-x-1 text-xs text-gray-600 dark:text-gray-400 font-mono">
             {pingStats.latency > 0 && <span>{pingStats.latency}ms DB</span>}
           </div>
         </div>
@@ -384,7 +396,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
 
       <div className="flex items-center space-x-2 mb-6">
         <div className="relative flex-1">
-          <Search className="absolute left-4 top-3.5 text-gray-400" size={18} />
+          <Search className="absolute left-4 top-3.5 text-gray-500 dark:text-gray-400" size={18} />
           <input 
             type="text" 
             placeholder="Search targets..." 
@@ -405,30 +417,30 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
              <option value="newest">Newest Seen</option>
              <option value="oldest">Oldest Seen</option>
           </select>
-          <SlidersHorizontal size={16} className="absolute left-3.5 top-3.5 text-gray-400 pointer-events-none" />
+          <SlidersHorizontal size={16} className="absolute left-3.5 top-3.5 text-gray-500 pointer-events-none" />
         </div>
       </div>
 
       {pinnedTargets.length > 0 && (
         <div className="mb-8">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3 flex items-center"><Pin size={14} className="mr-1" /> Pinned</h3>
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3 flex items-center"><Pin size={14} className="mr-1" /> Pinned</h3>
           <div className="space-y-3">
             {pinnedTargets.map((target, index) => (
               <div key={target.id} draggable={searchTerm === ''} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className="relative group">
-                <TargetCard target={target} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} isPrivacyMode={isPrivacyMode} />
+                <TargetCard target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} />
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-3">All Targets</h3>
+      <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3">All Targets</h3>
       <div className="space-y-3">
-        {otherTargets.map((target) => <TargetCard key={target.id} target={target} onClick={() => onTargetClick(target.id)} isPrivacyMode={isPrivacyMode} />)}
+        {otherTargets.map((target) => <TargetCard key={target.id} target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} />)}
         {targets.length === 0 && (
           <div className="text-center p-8 glass-card border-dashed">
             <User className="mx-auto text-gray-400 mb-2" size={32} />
-            <p className="text-gray-500 font-medium">No targets tracked yet.</p>
+            <p className="text-gray-600 dark:text-gray-400 font-medium">No targets tracked yet.</p>
           </div>
         )}
       </div>
@@ -436,13 +448,20 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
   );
 });
 
-const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, mongoFetch, apiConfig, isPrivacyMode }) {
+const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, mongoFetch, apiConfig }) {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); 
   const [isCopied, setIsCopied] = useState(false);
 
   const [localStats, setLocalStats] = useState({ totalTime: '0m', lastSeen: 'N/A', todayTimeline: Array(24).fill(0), sessionLogs: [] });
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+
+  // Helper for masking number
+  const maskNumber = (num) => {
+    if(!isPrivacyMode) return num;
+    const s = String(num);
+    return `${s.slice(0, 5)}***${s.slice(-4)}`;
+  };
 
   const formatDurationMs = (ms) => {
     if (!ms) return "0s";
@@ -538,29 +557,25 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
-  const maskNumber = (num) => {
-    if (!isPrivacyMode) return `+${num}`;
-    const s = String(num);
-    return `+${s.slice(0, 5)}***${s.slice(-4)}`;
-  };
-
   return (
     <div className="min-h-full animate-in slide-in-from-right-8 duration-300 relative z-10">
-      <div className="bg-var-bg pt-12 pb-6 px-6 sticky top-0 z-20 border-b border-var-border shadow-sm">
-        <button onClick={onClose} className="flex items-center text-blue-600 font-medium mb-4 active:scale-95 transition-transform"><ArrowLeft size={20} className="mr-1" /> Back</button>
+      <div className="wa-app-container pt-12 pb-6 px-6 sticky top-0 z-20 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+        <button onClick={onClose} className="flex items-center text-blue-600 dark:text-blue-400 font-medium mb-4 active:scale-95 transition-transform"><ArrowLeft size={20} className="mr-1" /> Back</button>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-var-border'} bg-var-card relative transition-all duration-500`}>
-              <span className={`text-2xl font-bold text-gray-500 ${isPrivacyMode ? 'blur-[3px]' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-gray-300 dark:border-gray-600'} bg-white dark:bg-gray-800 relative transition-all duration-500`}>
+              <span className={`text-2xl font-bold text-gray-500 dark:text-gray-300 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
               {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
             </div>
             <div>
-              <h1 className={`text-2xl font-bold leading-tight ${isPrivacyMode ? 'blur-[4px]' : ''}`}>{target.name}</h1>
+              <h1 className={`text-2xl font-bold leading-tight ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h1>
               <div className="flex items-center space-x-2 mt-1">
-                <p className="text-gray-500 font-mono text-sm">{maskNumber(target.number)}</p>
-                <button onClick={copyToClipboard} className="text-gray-400 hover:text-blue-500 transition-colors active:scale-90">
-                  {isCopied ? <CheckCircle2 size={14} className="text-green-500" /> : <Copy size={14} />}
-                </button>
+                <p className="text-gray-600 dark:text-gray-400 font-mono text-sm">+{maskNumber(target.number)}</p>
+                {!isPrivacyMode && (
+                  <button onClick={copyToClipboard} className="text-gray-400 hover:text-blue-500 transition-colors active:scale-90">
+                    {isCopied ? <CheckCircle2 size={14} className="text-green-500" /> : <Copy size={14} />}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -571,26 +586,26 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
       </div>
 
       <div className="p-6 pb-24 space-y-6 relative">
-        {isLoadingAnalytics && <div className="absolute inset-0 bg-var-bg/80 z-20 flex items-center justify-center m-6 rounded-3xl"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
+        {isLoadingAnalytics && <div className="absolute inset-0 bg-gray-50/80 dark:bg-gray-950/80 z-20 flex items-center justify-center m-6 rounded-3xl"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
 
         <div className="grid grid-cols-4 gap-3 relative z-10">
-          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 hover:bg-blue-50'}`}>
+          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700'}`}>
             <Pin size={20} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[10px] font-semibold mt-1">Pin</span>
           </button>
-          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 hover:bg-orange-50'}`}>
+          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700'}`}>
             {target.isMuted ? <BellOff size={20} /> : <Bell size={20} />} <span className="text-[10px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
           </button>
-          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-purple-600 hover:bg-purple-50 transition-all active:scale-95 relative`}>
+          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700 transition-all active:scale-95 relative`}>
             <Timer size={20} /> <span className="text-[10px] font-semibold mt-1">Snooze</span>
             {showSnoozeMenu && (
-              <div className="absolute top-full left-0 mt-2 bg-var-card border border-var-border rounded-xl w-32 py-1 z-50 text-left shadow-lg">
-                <div onClick={() => { onSnooze(target.id, 1); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-black/5 transition-colors">1 Hour</div>
-                <div className="border-t border-var-border"></div>
-                <div onClick={() => { onSnooze(target.id, 8); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-black/5 transition-colors">8 Hours</div>
+              <div className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl w-32 py-1 z-50 text-left shadow-lg">
+                <div onClick={() => { onSnooze(target.id, 1); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">1 Hour</div>
+                <div className="border-t border-gray-200 dark:border-gray-700"></div>
+                <div onClick={() => { onSnooze(target.id, 8); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">8 Hours</div>
               </div>
             )}
           </button>
-          <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-red-600 hover:bg-red-50 transition-all active:scale-95">
+          <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700 transition-all active:scale-95">
             <Trash2 size={20} /> <span className="text-[10px] font-semibold mt-1">Remove</span>
           </button>
         </div>
@@ -598,13 +613,13 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
         <div className="glass-card p-5 overflow-hidden relative">
           <div className="flex items-center justify-between mb-4 relative z-10">
             <div className="flex items-center space-x-2">
-              <button onClick={() => setDayOffset(d => d + 1)} className="p-1.5 bg-black/5 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
+              <button onClick={() => setDayOffset(d => d + 1)} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
               <h2 className="text-sm font-bold w-32 text-center select-none uppercase tracking-wider">{getDayLabel()}</h2>
-              <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-black/5 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
+              <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
             </div>
             <div className="text-right">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total</p>
-              <p className="text-2xl font-black text-blue-600">{localStats.totalTime}</p>
+              <p className="text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
             </div>
           </div>
           <div className="mt-6 w-full h-24 relative -mx-1">
@@ -618,7 +633,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
               <path d={areaD} fill="url(#colorActivity)" />
               <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mt-2 px-1"><span>12A</span><span>6A</span><span>12P</span><span>6P</span><span>11P</span></div>
+            <div className="flex justify-between text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-2 px-1"><span>12A</span><span>6A</span><span>12P</span><span>6P</span><span>11P</span></div>
           </div>
         </div>
 
@@ -628,7 +643,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
               <List size={20} />
             </div>
             <h2 className="text-lg font-bold">Session Logs</h2>
-            <span className="ml-auto text-xs font-bold text-gray-500 bg-black/5 px-2 py-1 rounded-md">{localStats.sessionLogs.length} SESSIONS</span>
+            <span className="ml-auto text-xs font-bold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">{localStats.sessionLogs.length} SESSIONS</span>
           </div>
           
           <div className="space-y-3 mt-4 max-h-64 overflow-y-auto pr-2 scrollbar-hide">
@@ -636,13 +651,13 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
               <p className="text-sm text-gray-500 text-center py-6 italic">No sessions recorded.</p>
             ) : (
               localStats.sessionLogs.map((log, i) => (
-                <div key={log.id || i} className="flex justify-between items-center p-3 rounded-2xl bg-black/5 border border-var-border hover:bg-black/10 transition-colors">
+                <div key={log.id || i} className="flex justify-between items-center p-3 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
                   <div className="flex items-center space-x-3">
                     <div className={`w-2.5 h-2.5 rounded-full ${log.isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'}`}></div>
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold">
                         {log.start} <span className="text-gray-400 font-normal mx-1">→</span> 
-                        {log.end === 'Active Now' ? <span className="text-green-600">Active Now</span> : log.end}
+                        {log.end === 'Active Now' ? <span className="text-green-600 dark:text-green-400">Active Now</span> : log.end}
                       </span>
                     </div>
                   </div>
@@ -660,29 +675,30 @@ const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRem
   );
 });
 
-const TargetCard = memo(function TargetCard({ target, onClick, isPinnedItem, isPrivacyMode }) {
+const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, isPinnedItem }) {
+  // Helper for masking number
   const maskNumber = (num) => {
-    if (!isPrivacyMode) return num;
+    if(!isPrivacyMode) return num;
     const s = String(num);
     return `${s.slice(0, 5)}***${s.slice(-4)}`;
   };
 
   return (
-    <div onClick={onClick} className="glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-black/5">
-      {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-500 p-1"><GripVertical size={18} /></div>}
+    <div onClick={onClick} className="glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700">
+      {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
       <div className="relative mr-4">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-var-border'} bg-var-card relative transition-colors`}>
-          <span className={`text-lg font-bold text-gray-500 group-hover:text-blue-600 transition-all ${isPrivacyMode ? 'blur-[2px]' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-gray-100 dark:bg-gray-800 relative transition-colors`}>
+          <span className={`text-lg font-bold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
           {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
         </div>
-        <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-var-bg flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400'}`}>
+        <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}>
           {target.isOnline ? <Wifi size={10} color="white" className="relative z-10" /> : <WifiOff size={10} color="white" />}
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center"><h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'blur-[4px]' : ''}`}>{target.name}</h3>{target.isMuted && <BellOff size={12} className="text-gray-400" />}</div>
-        <p className="text-sm text-gray-500 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {target.lastSeen}</span>}</p>
-        {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-0.5">{maskNumber(target.number)}</p>}
+        <div className="flex items-center"><h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h3>{target.isMuted && <BellOff size={12} className="text-gray-400" />}</div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>}</p>
+        {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
       </div>
       <div className="text-right flex flex-col items-end pl-2">
         <div className="bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 text-blue-700 dark:text-blue-400 font-bold text-sm px-3 py-1 rounded-xl mb-1">{target.totalTime}</div>
@@ -692,7 +708,7 @@ const TargetCard = memo(function TargetCard({ target, onClick, isPinnedItem, isP
   );
 });
 
-const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig, isPrivacyMode }) {
+const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }) {
   const [targetA, setTargetA] = useState(targets[0]?.number || '');
   const [targetB, setTargetB] = useState(targets[1]?.number || '');
   const [dayOffset, setDayOffset] = useState(0);
@@ -767,30 +783,30 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig, 
       <div className="glass-card p-4 mb-6 space-y-4">
         <div className="flex items-center justify-between space-x-4">
            <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 flex items-center justify-center font-black flex-shrink-0">A</div>
-           <select className="flex-1 bg-var-card border border-var-border rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-var-text cursor-pointer" value={targetA} onChange={e => setTargetA(e.target.value)}>
-             {targets.map(t => <option key={`A_${t.id}`} value={t.number}>{isPrivacyMode ? 'Target A' : t.name}</option>)}
+           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer" value={targetA} onChange={e => setTargetA(e.target.value)}>
+             {targets.map(t => <option key={`A_${t.id}`} value={t.number}>{t.name}</option>)}
            </select>
         </div>
         <div className="flex items-center justify-between space-x-4">
            <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50 flex items-center justify-center font-black flex-shrink-0">B</div>
-           <select className="flex-1 bg-var-card border border-var-border rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 appearance-none text-var-text cursor-pointer" value={targetB} onChange={e => setTargetB(e.target.value)}>
-             {targets.map(t => <option key={`B_${t.id}`} value={t.number}>{isPrivacyMode ? 'Target B' : t.name}</option>)}
+           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer" value={targetB} onChange={e => setTargetB(e.target.value)}>
+             {targets.map(t => <option key={`B_${t.id}`} value={t.number}>{t.name}</option>)}
            </select>
         </div>
       </div>
 
       <div className="flex items-center justify-between mb-6 glass-card p-2 rounded-2xl">
-        <button onClick={() => setDayOffset(d => d + 1)} className="p-2.5 bg-black/5 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
+        <button onClick={() => setDayOffset(d => d + 1)} className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
         <h2 className="text-sm font-bold w-32 text-center select-none uppercase tracking-wider">{getDayLabel()}</h2>
-        <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-2.5 bg-black/5 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
+        <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
       </div>
 
       <div className="glass-card p-5 flex-1 relative overflow-hidden flex flex-col mb-16">
-        {isLoading && <div className="absolute inset-0 bg-var-bg/80 z-20 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
+        {isLoading && <div className="absolute inset-0 bg-white/80 dark:bg-gray-800/80 z-20 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
         
         <div className="text-center mb-6 pt-2">
            <p className="text-xs font-bold text-gray-500 tracking-widest uppercase mb-1">Total Intersection</p>
-           <p className="text-4xl font-black text-blue-600">{overlapStats.totalOverlapStr}</p>
+           <p className="text-4xl font-black text-blue-600 dark:text-purple-400">{overlapStats.totalOverlapStr}</p>
         </div>
 
         <div className="flex-1 overflow-y-auto pr-2 space-y-3 scrollbar-hide">
@@ -817,12 +833,13 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig, 
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, theme, setTheme, newTarget, setNewTarget, handleAddTarget, pingStats }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats }) {
   const themes = [
-    { id: 'light-classic', name: 'Light Classic', icon: Sun, color: 'bg-white' },
-    { id: 'light-colorful', name: 'Light Colorful', icon: Sun, color: 'bg-indigo-50' },
-    { id: 'dark-amoled', name: 'Dark Amoled', icon: Moon, color: 'bg-black' },
-    { id: 'dark-colorful', name: 'Dark Colorful', icon: Moon, color: 'bg-slate-900' }
+    { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
+    { id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
+    { id: 'dark-classic', name: 'Dark Grey', icon: <Moon size={18} />, color: 'bg-gray-700' },
+    { id: 'dark-colorful', name: 'Dark Color', icon: <Palette size={18} />, color: 'bg-slate-900' },
+    { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
   ];
 
   return (
@@ -830,42 +847,44 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, theme
       <h1 className="text-4xl font-extrabold tracking-tight mb-6">Settings</h1>
       
       <div className="mb-6">
-        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3 ml-4">Appearance Engine</h3>
+        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Workspace Theme</h3>
         <div className="grid grid-cols-2 gap-3">
           {themes.map((t) => (
-            <button
+            <button 
               key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all border-2 ${theme === t.id ? 'border-blue-500 bg-blue-50/10 scale-[1.02] shadow-md' : 'border-var-border bg-var-card hover:bg-black/5'}`}
+              onClick={() => setCurrentTheme(t.id)}
+              className={`flex items-center space-x-3 p-3 rounded-2xl border transition-all active:scale-95 ${currentTheme === t.id ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-500/10' : 'border-gray-200 dark:border-gray-700 glass-card'}`}
             >
-              <t.icon size={20} className={theme === t.id ? 'text-blue-500' : 'text-gray-400'} />
-              <span className={`text-[10px] font-bold mt-2 ${theme === t.id ? 'text-blue-600' : 'text-gray-500'}`}>{t.name}</span>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${t.color}`}>
+                {React.cloneElement(t.icon, { size: 14, className: currentTheme === t.id ? 'text-blue-500' : 'text-gray-400' })}
+              </div>
+              <span className={`text-xs font-bold ${currentTheme === t.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{t.name}</span>
             </button>
           ))}
         </div>
       </div>
 
       <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2 ml-4">Quick Add</h3>
+        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Quick Add</h3>
         <div className="glass-card p-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <input type="text" placeholder="Name" value={newTarget.name} onChange={(e) => setNewTarget({...newTarget, name: e.target.value})} className="flex-1 min-w-0 bg-var-bg border border-var-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
-            <input type="tel" placeholder="Number" value={newTarget.number} onChange={(e) => setNewTarget({...newTarget, number: e.target.value})} className="flex-1 min-w-0 bg-var-bg border border-var-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
+            <input type="text" placeholder="Name" value={newTarget.name} onChange={(e) => setNewTarget({...newTarget, name: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
+            <input type="tel" placeholder="Number" value={newTarget.number} onChange={(e) => setNewTarget({...newTarget, number: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
             <button onClick={handleAddTarget} disabled={!newTarget.number} className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl disabled:opacity-50 transition-colors shadow-md active:scale-95 shrink-0 flex items-center justify-center"><Plus size={20} /></button>
           </div>
         </div>
       </div>
 
       <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2 ml-4">Advanced Configuration</h3>
-        <div className="glass-card overflow-hidden divide-y divide-var-border">
-          <div className="p-4 bg-black/5"><p className="text-xs font-bold uppercase tracking-wider mb-1 text-gray-500">1. Vercel Database Proxy</p></div>
-          <div className="p-4 hover:bg-black/5 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" placeholder="https://my-proxy.vercel.app/api/proxy" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          <div className="p-4 hover:bg-black/5 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" placeholder="••••••••••••••••••••••••••••••" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Advanced Configuration</h3>
+        <div className="glass-card overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="p-4 bg-gray-50 dark:bg-gray-900"><p className="text-xs font-bold uppercase tracking-wider mb-1 text-gray-600 dark:text-gray-400">1. Vercel Database Proxy</p></div>
+          <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" placeholder="https://my-proxy.vercel.app/api/proxy" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+          <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" placeholder="••••••••••••••••••••••••••••••" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           
-          <div className="p-4 bg-blue-50/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
-          <div className="p-4 hover:bg-blue-50/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          <div className="p-4 hover:bg-blue-50/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
+          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
         </div>
       </div>
     </div>
