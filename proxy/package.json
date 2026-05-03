@@ -1,0 +1,7 @@
+{
+  "name": "whatsapp-tracker-proxy",
+  "version": "1.0.0",
+  "dependencies": {
+    "mongodb": "^6.5.0"
+  }
+}

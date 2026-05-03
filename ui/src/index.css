@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* 1. Tailwind v4 Theme & Dark Mode Configuration */
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 2. Custom Utility Classes */
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* 3. Glossy Glassmorphism Utility (Apple Vision/iOS 18 Style) */
+@utility glass-card {
+  @apply bg-white/60 dark:bg-gray-900/50 backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
+}
+
+@utility glass-panel {
+  @apply bg-white/40 dark:bg-black/40 backdrop-blur-3xl border border-white/50 dark:border-white/5 shadow-2xl;
+}
+
+/* 4. Liquid Background Animation */
+@keyframes liquid {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.liquid-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: #f0f2f5;
+  transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark .liquid-bg {
+  background: #050505;
+}
+
+.blob {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
+  filter: blur(80px);
+  border-radius: 50%;
+  animation: liquid 25s infinite alternate ease-in-out;
+}
+
+.blob-2 {
+  top: -100px;
+  right: -100px;
+  background: linear-gradient(180deg, rgba(236, 72, 153, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+  animation-delay: -5s;
+}
+
+.blob-3 {
+  bottom: -150px;
+  left: -100px;
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
+  animation-delay: -10s;
+}
+
+body {
+  @apply transition-colors duration-500 m-0 antialiased overflow-hidden text-gray-900 dark:text-gray-100;
+  font-family: var(--font-sans);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Fix for inputs in light mode */
+input::placeholder {
+  @apply text-gray-400 dark:text-gray-500;
+}
