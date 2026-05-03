@@ -1,7 +1,50 @@
 @import "tailwindcss";
 
-/* 1. Tailwind v4 Theme & Dark Mode Configuration */
-@custom-variant dark (&:is(.dark *));
+/* 1. Theme Configuration Engine */
+:root {
+  --wa-bg: #f9fafb;
+  --wa-card: #ffffff;
+  --wa-text: #111827;
+  --wa-border: #e5e7eb;
+}
+
+/* Light Classic */
+.theme-light-classic {
+  --wa-bg: #f9fafb;
+  --wa-card: #ffffff;
+  --wa-text: #111827;
+  --wa-border: #e5e7eb;
+}
+
+/* Light Colorful (Tinted White) */
+.theme-light-colorful {
+  --wa-bg: #f4f5ff;
+  --wa-card: #ffffff;
+  --wa-text: #1e1b4b;
+  --wa-border: #e0e7ff;
+}
+
+/* Dark Amoled (Pitch Black) */
+.theme-dark-amoled {
+  --wa-bg: #000000;
+  --wa-card: #0a0a0a;
+  --wa-text: #f9fafb;
+  --wa-border: #1a1a1a;
+}
+
+/* Dark Colorful (Modern Slate) */
+.theme-dark-colorful {
+  --wa-bg: #0f172a;
+  --wa-card: #1e293b;
+  --wa-text: #f1f5f9;
+  --wa-border: #334155;
+}
+
+/* Apply Variables */
+.bg-var-bg { background-color: var(--wa-bg); }
+.bg-var-card { background-color: var(--wa-card); }
+.text-var-text { color: var(--wa-text); }
+.border-var-border { border-color: var(--wa-border); }
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -16,85 +59,39 @@
   }
 }
 
-/* --- UPDATED: ADVANCED THEME ENGINE VARIABLES --- */
-:root {
-  /* Default: Light Classic */
-  --bg-main: #f9fafb;
-  --bg-card: #ffffff;
-  --text-main: #111827;
-  --border-main: #e5e7eb;
-}
-
-[data-theme="light-system"] {
-  --bg-main: #f3f6ff;
-  --bg-card: #ffffff;
-  --text-main: #1e293b;
-  --border-main: #dbeafe;
-}
-
-[data-theme="dark-classic"] {
-  --bg-main: #0a0a0a;
-  --bg-card: #1f2937;
-  --text-main: #f9fafb;
-  --border-main: #374151;
-}
-
-[data-theme="dark-amoled"] {
-  --bg-main: #000000;
-  --bg-card: #000000;
-  --text-main: #ffffff;
-  --border-main: #1a1a1a;
-}
-
-@utility theme-bg {
-  background-color: var(--bg-main);
-}
-
-@utility theme-card {
-  background-color: var(--bg-card);
-}
-
-@utility theme-text {
-  color: var(--text-main);
-}
-
-@utility theme-border {
-  border-color: var(--border-main);
-}
-
-@utility theme-divider {
-  @apply border-gray-200 dark:border-gray-800;
-}
-
-/* 3. Solid Modern Cards (Zero Blur for Max Performance) */
+/* 3. Solid Modern Cards (Using CSS Variables) */
 @utility glass-card {
-  @apply border shadow-sm rounded-[24px];
-  background-color: var(--bg-card);
-  border-color: var(--border-main);
+  background-color: var(--wa-card);
+  border: 1px solid var(--wa-border);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border-radius: 24px;
 }
 
 @utility glass-panel {
-  @apply border shadow-xl;
-  background-color: var(--bg-card);
-  border-color: var(--border-main);
+  background-color: var(--wa-card);
+  border: 1px solid var(--wa-border);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
 /* 4. Global App Styling */
 body {
-  @apply m-0 antialiased overflow-hidden transition-colors duration-200;
-  background-color: var(--bg-main);
-  color: var(--text-main);
+  margin: 0;
+  antialiased: true;
+  overflow: hidden;
   font-family: var(--font-sans);
+  background-color: var(--wa-bg);
+  color: var(--wa-text);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 #root {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh; /* Dynamic viewport height for mobile browsers */
+  height: 100dvh;
 }
 
-/* Fix for inputs in light mode */
+/* Input placeholder color adjustment */
 input::placeholder {
-  @apply text-gray-400 dark:text-gray-500;
+  color: #9ca3af;
 }
