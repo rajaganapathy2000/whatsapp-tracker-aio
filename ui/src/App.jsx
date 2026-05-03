@@ -17,7 +17,13 @@ export default function App() {
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
-  const [targets, setTargets] = useState([]);
+  
+  // NEW: Initialize targets directly from local cache for instant Offline-First load
+  const [targets, setTargets] = useState(() => {
+    const cachedTargets = localStorage.getItem('waTrackerCachedTargets');
+    return cachedTargets ? JSON.parse(cachedTargets) : [];
+  });
+  
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
 
@@ -49,6 +55,11 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [apiConfig, isDarkMode, currentTheme, isPrivacyMode]);
+
+  // NEW: Automatically cache targets array (saves pins and order) whenever it changes
+  useEffect(() => {
+    localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets));
+  }, [targets]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
   const mongoFetch = useCallback(async (action, collection, query = {}, sort = {}, limit = null, update = {}) => {
