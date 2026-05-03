@@ -3,16 +3,13 @@ import {
   Home, Settings, User, Plus, Wifi, WifiOff, 
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
-  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette
+  Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  
-  // --- NEW THEME & PRIVACY STATES ---
   const [theme, setTheme] = useState('light-classic'); // light-classic, light-system, dark-classic, dark-amoled
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
-  
   const [viewingTarget, setViewingTarget] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   
@@ -37,12 +34,16 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('waTrackerConfig', JSON.stringify({ apiConfig, theme, isPrivacyMode }));
-    // Update the HTML class for Tailwind dark mode support
-    if (theme.startsWith('dark')) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
     
-    // Apply the specific theme data-attribute for CSS variables
-    document.documentElement.setAttribute('data-theme', theme);
+    // Apply Theme Classes to Root
+    const root = document.documentElement;
+    root.classList.remove('theme-light-classic', 'theme-light-system', 'theme-dark-classic', 'theme-dark-amoled', 'dark');
+    root.classList.add(`theme-${theme}`);
+    if (theme.startsWith('dark')) root.classList.add('dark');
+
+    // Apply Privacy Mode Class
+    if (isPrivacyMode) root.classList.add('privacy-active');
+    else root.classList.remove('privacy-active');
   }, [apiConfig, theme, isPrivacyMode]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
@@ -152,7 +153,7 @@ export default function App() {
 
   fetchLiveStateRef.current = fetchLiveState;
 
-  // --- PUSHER: REAL-TIME WEBSOCKET LISTENER (DEBOUNCED) ---
+  // --- PUSHER: REAL-TIME WEBSOCKET LISTENER ---
   useEffect(() => {
     if (!apiConfig.pusherKey || !apiConfig.pusherCluster) return;
 
@@ -261,45 +262,25 @@ export default function App() {
   }, []);
 
   return (
-    <div className="wa-app-root h-[100dvh] w-full overflow-hidden bg-app sm:bg-gray-200 dark:sm:bg-black sm:flex sm:items-center sm:justify-center">
-      <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto text-app-text font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] relative">
-        
-        {/* --- DYNAMIC HEADER WITH PRIVACY TOGGLE --- */}
-        {!viewingTarget && (
-          <div className="flex items-center justify-between px-6 pt-12 pb-4 bg-app z-30">
-            <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
-            <button 
-              onClick={() => setIsPrivacyMode(!isPrivacyMode)}
-              className={`p-2.5 rounded-2xl transition-all active:scale-90 ${isPrivacyMode ? 'bg-blue-600 text-white shadow-md' : 'bg-card text-gray-500'}`}
-            >
-              {isPrivacyMode ? <EyeOff size={22} /> : <Eye size={22} />}
-            </button>
-          </div>
-        )}
-
+    <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10">
           {viewingTarget ? (
             <TargetDetailView 
-              target={targets.find(t => t.id === viewingTarget)} 
-              isPrivacyMode={isPrivacyMode}
-              onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
+              target={targets.find(t => t.id === viewingTarget)} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
               onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
+              isPrivacyMode={isPrivacyMode}
             />
           ) : activeTab === 'dashboard' ? (
             <DashboardView 
-              targets={targets} 
-              pingStats={pingStats} 
-              isSyncing={isSyncing} 
-              isPrivacyMode={isPrivacyMode}
-              onTargetClick={setViewingTarget} reorderPinned={reorderPinned} 
+                targets={targets} pingStats={pingStats} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} 
+                isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode}
             />
           ) : activeTab === 'compare' ? (
-            <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} />
+            <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} isPrivacyMode={isPrivacyMode} />
           ) : (
             <SettingsView 
-              apiConfig={apiConfig} setApiConfig={setApiConfig} 
-              theme={theme} setTheme={setTheme} 
-              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} 
+                apiConfig={apiConfig} setApiConfig={setApiConfig} theme={theme} setTheme={setTheme} 
+                newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} 
             />
           )}
         </div>
@@ -319,42 +300,32 @@ export default function App() {
           </button>
         </div>
       </div>
-    </div>
   );
 }
 
 // ==========================================
-// VIEWS (MEMOIZED FOR PERFORMANCE)
+// VIEWS (MEMOIZED)
 // ==========================================
 
-const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncing, isPrivacyMode, onTargetClick, reorderPinned }) {
+const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncing, onTargetClick, reorderPinned, isPrivacyMode, setIsPrivacyMode }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState(() => localStorage.getItem('waTrackerSort') || 'default');
 
-  useEffect(() => {
-    localStorage.setItem('waTrackerSort', sortOption);
-  }, [sortOption]);
+  useEffect(() => { localStorage.setItem('waTrackerSort', sortOption); }, [sortOption]);
 
   const { pinnedTargets, otherTargets } = useMemo(() => {
     const filtered = targets.filter(t => 
       t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       t.number.includes(searchTerm)
     );
-
     const pinned = filtered.filter(t => t.isPinned).sort((a,b) => a.pinOrder - b.pinOrder);
     const others = filtered.filter(t => !t.isPinned);
-
     switch(sortOption) {
         case 'az': others.sort((a,b) => a.name.localeCompare(b.name)); break;
         case 'za': others.sort((a,b) => b.name.localeCompare(a.name)); break;
         case 'newest': others.sort((a,b) => b.lastActiveMs - a.lastActiveMs); break;
         case 'oldest': others.sort((a,b) => a.lastActiveMs - b.lastActiveMs); break;
-        default:
-            others.sort((a, b) => {
-                if (a.isOnline && !b.isOnline) return -1;
-                if (!a.isOnline && b.isOnline) return 1;
-                return a.name.localeCompare(b.name);
-            });
+        default: others.sort((a, b) => (a.isOnline === b.isOnline ? a.name.localeCompare(b.name) : a.isOnline ? -1 : 1));
     }
     return { pinnedTargets: pinned, otherTargets: others };
   }, [targets, searchTerm, sortOption]);
@@ -363,45 +334,42 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
   const handleDragStart = (e, index) => { dragItem.current = index; };
   const handleDragEnter = (e, index) => { dragOverItem.current = index; };
   const handleDragEnd = () => {
-    if(dragItem.current !== undefined && dragOverItem.current !== undefined && searchTerm === '') {
-      reorderPinned(dragItem.current, dragOverItem.current);
-    }
+    if(dragItem.current !== undefined && dragOverItem.current !== undefined && searchTerm === '') reorderPinned(dragItem.current, dragOverItem.current);
     dragItem.current = undefined; dragOverItem.current = undefined;
   };
 
   return (
-    <div className="p-6 pt-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* --- STATS BAR --- */}
-      <div className="flex justify-end mb-4">
-          <div className="flex space-x-2">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+            <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
+            <button onClick={() => setIsPrivacyMode(!isPrivacyMode)} className="mt-2 flex items-center text-xs font-bold text-gray-500 uppercase tracking-widest active:scale-95 transition-transform">
+                {isPrivacyMode ? <EyeOff size={14} className="mr-1 text-blue-500" /> : <Eye size={14} className="mr-1" />}
+                {isPrivacyMode ? "Privacy On" : "Privacy Off"}
+            </button>
+        </div>
+        <div className="flex flex-col items-end">
+          <div className="flex space-x-2 mb-1">
             {pingStats.wsStatus === 'Live' && (
               <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
                 <Zap size={10} className="fill-current" /> Live
               </div>
             )}
-            <div className={`flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${pingStats.dbStatus === 'Connected' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-gray-200 text-gray-700 dark:bg-gray-800'}`}>
+            <div className={`flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${pingStats.dbStatus === 'Connected' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'}`}>
               <RefreshCw size={10} className={`${isSyncing ? 'animate-spin' : ''} mr-1`} /> {pingStats.dbStatus}
             </div>
           </div>
+          <div className="text-xs text-gray-500 font-mono">{pingStats.latency > 0 && <span>{pingStats.latency}ms</span>}</div>
+        </div>
       </div>
 
       <div className="flex items-center space-x-2 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-3.5 text-gray-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full glass-card pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500"
-          />
+          <input type="text" placeholder="Search targets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full glass-card pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors" />
         </div>
         <div className="relative shrink-0">
-          <select 
-             value={sortOption} 
-             onChange={e => setSortOption(e.target.value)}
-             className="glass-card pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium cursor-pointer"
-          >
+          <select value={sortOption} onChange={e => setSortOption(e.target.value)} className="glass-card pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium">
              <option value="default">Default</option>
              <option value="az">A-Z</option>
              <option value="za">Z-A</option>
@@ -432,7 +400,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, isSyncin
   );
 });
 
-const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, mongoFetch, apiConfig }) {
+const TargetDetailView = memo(function TargetDetailView({ target, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, mongoFetch, apiConfig, isPrivacyMode }) {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); 
   const [isCopied, setIsCopied] = useState(false);
@@ -443,16 +411,13 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
     if (!ms) return "0s";
     const h = Math.floor(ms / 3600000);
     const m = Math.floor((ms % 3600000) / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
     if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
+    return `${m}m`;
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(`+${target.number}`);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+  const maskNumber = (num) => {
+    if(!isPrivacyMode) return num;
+    return num.length > 6 ? `${num.slice(0, 5)}***${num.slice(-2)}` : '**********';
   };
 
   useEffect(() => {
@@ -460,17 +425,15 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
     const fetchAnalytics = async () => {
       setIsLoadingAnalytics(true);
       try {
-        const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() - dayOffset);
+        const targetDate = new Date(); targetDate.setDate(targetDate.getDate() - dayOffset);
         const targetDateStr = `${String(targetDate.getDate()).padStart(2, '0')}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${targetDate.getFullYear()}`;
         const lineRes = await mongoFetch('find', target.number, { date: targetDateStr }, { timestamp: -1 }, 5000);
         const lineRecords = lineRes?.documents || [];
         const pendingRes = await mongoFetch('findOne', 'pending_sessions', { _id: target.number });
         let currentLiveStart = pendingRes?.document?.onlineStartTime || null;
-        let targetDayMs = 0;
-        let recentOffline = dayOffset === 0 && target.isOnline ? "Active Now" : "No Activity";
+        let targetDayMs = 0; let recentOffline = dayOffset === 0 && target.isOnline ? "Active Now" : "No Activity";
         const timeline24h = Array(24).fill(0);
-        const logs = lineRecords.map(r => ({ id: r._id || r.timestamp, start: r.onlineTime, end: r.offlineTime || 'Unknown', duration: r.durationMs }));
+        const logs = lineRecords.map(r => ({ id: r.timestamp, start: r.onlineTime, end: r.offlineTime || '...', duration: r.durationMs }));
         lineRecords.forEach(r => {
            targetDayMs += (r.durationMs || 0);
            if (recentOffline === "No Activity") recentOffline = r.offlineTime;
@@ -478,61 +441,46 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
            if (!isNaN(hour) && hour >= 0 && hour < 24) timeline24h[hour] += (r.durationMs || 0) / 60000;
         });
         if (dayOffset === 0 && target.isOnline && currentLiveStart) {
-          const liveMs = Date.now() - currentLiveStart;
-          targetDayMs += liveMs;
+          const liveMs = Date.now() - currentLiveStart; targetDayMs += liveMs;
           timeline24h[new Date().getHours()] += liveMs / 60000;
           recentOffline = "Active Now";
           const d = new Date(currentLiveStart);
-          const pad = n => String(n).padStart(2, '0');
-          logs.unshift({ id: 'live_session', start: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`, end: 'Active Now', duration: liveMs, isLive: true });
+          logs.unshift({ id: 'live', start: `${d.getHours()}:${d.getMinutes()}`, end: 'Active Now', duration: liveMs, isLive: true });
         }
-        const h = Math.floor(targetDayMs / 3600000);
-        const m = Math.floor((targetDayMs % 3600000) / 60000);
-        setLocalStats({ totalTime: targetDayMs > 0 ? (h > 0 ? `${h}h ${m}m` : `${m}m`) : '0m', lastSeen: recentOffline, todayTimeline: timeline24h.map(Math.floor), sessionLogs: logs });
+        const h = Math.floor(targetDayMs / 3600000); const m = Math.floor((targetDayMs % 3600000) / 60000);
+        setLocalStats({ totalTime: h > 0 ? `${h}h ${m}m` : `${m}m`, lastSeen: recentOffline, todayTimeline: timeline24h.map(Math.floor), sessionLogs: logs });
       } catch (e) {}
       setIsLoadingAnalytics(false);
     };
     fetchAnalytics();
   }, [target.number, apiConfig, dayOffset, target.isOnline, mongoFetch]);
 
-  if (!target) return null;
-
   const maxActivity = 60; const chartHeight = 80;
   let pathD = `M 0,${chartHeight - (Math.min(localStats.todayTimeline[0], maxActivity) / maxActivity) * chartHeight}`;
   localStats.todayTimeline.forEach((val, i) => {
     if (i === 0) return;
-    const x = (i / 23) * 230; 
-    const y = chartHeight - (Math.min(val, maxActivity) / maxActivity) * chartHeight;
+    const x = (i / 23) * 230; const y = chartHeight - (Math.min(val, maxActivity) / maxActivity) * chartHeight;
     pathD += ` L ${x},${y}`; 
   });
-  const areaD = `${pathD} L 230,${chartHeight} L 0,${chartHeight} Z`;
-
-  // Privacy Masking
-  const displayNum = isPrivacyMode ? `${target.number.slice(0, 5)}***${target.number.slice(-4)}` : target.number;
-  const displayName = isPrivacyMode ? target.name.charAt(0) + "***" : target.name;
 
   return (
     <div className="min-h-full animate-in slide-in-from-right-8 duration-300 relative z-10">
-      <div className="bg-app pt-12 pb-6 px-6 sticky top-0 z-20 border-b border-gray-200 dark:border-gray-800 shadow-sm">
-        <button onClick={onClose} className="flex items-center text-blue-600 font-medium mb-4 active:scale-95"><ArrowLeft size={20} className="mr-1" /> Back</button>
+      <div className="glass-panel pt-12 pb-6 px-6 sticky top-0 z-20 border-b shadow-sm">
+        <button onClick={onClose} className="flex items-center text-blue-600 font-medium mb-4"><ArrowLeft size={20} className="mr-1" /> Back</button>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-card relative`}>
-              <span className={`text-2xl font-bold text-gray-500 ${isPrivacyMode ? 'blur-[2px]' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-gray-300'}`}>
+              <span className="text-2xl font-bold text-gray-500">{target.name.charAt(0).toUpperCase()}</span>
             </div>
             <div>
-              <h1 className={`text-2xl font-bold leading-tight ${isPrivacyMode ? 'blur-[3px] select-none' : ''}`}>{displayName}</h1>
+              <h1 className={`text-2xl font-bold leading-tight privacy-mask`}>{target.name}</h1>
               <div className="flex items-center space-x-2 mt-1">
-                <p className="text-gray-500 font-mono text-sm">+{displayNum}</p>
-                {!isPrivacyMode && (
-                  <button onClick={copyToClipboard} className="text-gray-400 hover:text-blue-500 active:scale-90">
-                    {isCopied ? <CheckCircle2 size={14} className="text-green-500" /> : <Copy size={14} />}
-                  </button>
-                )}
+                <p className="text-gray-500 font-mono text-sm">+{maskNumber(target.number)}</p>
+                {!isPrivacyMode && <button onClick={() => {navigator.clipboard.writeText(target.number); setIsCopied(true); setTimeout(()=>setIsCopied(false), 2000)}} className="text-gray-400">{isCopied ? <CheckCircle2 size={14} className="text-green-500" /> : <Copy size={14} />}</button>}
               </div>
             </div>
           </div>
-          <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase ${target.isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600 dark:bg-gray-800'}`}>
+          <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase ${target.isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
             {target.isOnline ? <Wifi size={12} /> : <WifiOff size={12} />} <span>{target.isOnline ? 'Online' : 'Offline'}</span>
           </div>
         </div>
@@ -540,40 +488,27 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
       <div className="p-6 pb-24 space-y-6">
         <div className="grid grid-cols-4 gap-3">
-          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all ${target.isPinned ? 'bg-blue-600 text-white' : 'glass-card text-blue-600'}`}>
-            <Pin size={20} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[10px] font-semibold mt-1">Pin</span>
+          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center p-3 rounded-2xl ${target.isPinned ? 'bg-blue-600 text-white' : 'glass-card text-blue-600'}`}><Pin size={20} /><span className="text-[10px] mt-1">Pin</span></button>
+          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center p-3 rounded-2xl ${target.isMuted ? 'bg-orange-500 text-white' : 'glass-card text-orange-600'}`}>{target.isMuted ? <BellOff size={20} /> : <Bell size={20} />}<span className="text-[10px] mt-1">Mute</span></button>
+          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className="flex flex-col items-center p-3 rounded-2xl glass-card text-purple-600 relative"><Timer size={20} /><span className="text-[10px] mt-1">Snooze</span>
+            {showSnoozeMenu && <div className="absolute top-full left-0 mt-2 bg-white border rounded-xl w-32 py-1 z-50 shadow-lg text-black"><div onClick={()=>onSnooze(target.id, 1)} className="px-4 py-2 hover:bg-gray-100">1 Hour</div><div onClick={()=>onSnooze(target.id, 8)} className="px-4 py-2 hover:bg-gray-100">8 Hours</div></div>}
           </button>
-          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all ${target.isMuted ? 'bg-orange-500 text-white' : 'glass-card text-orange-600'}`}>
-            {target.isMuted ? <BellOff size={20} /> : <Bell size={20} />} <span className="text-[10px] font-semibold mt-1">Mute</span>
-          </button>
-          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className="flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-purple-600 relative">
-            <Timer size={20} /> <span className="text-[10px] font-semibold mt-1">Snooze</span>
-            {showSnoozeMenu && (
-              <div className="absolute top-full left-0 mt-2 bg-card border border-gray-200 dark:border-gray-700 rounded-xl w-32 py-1 z-50 shadow-lg">
-                <div onClick={() => { onSnooze(target.id, 1); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">1 Hour</div>
-                <div onClick={() => { onSnooze(target.id, 8); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm hover:bg-gray-100 dark:hover:bg-gray-700">8 Hours</div>
-              </div>
-            )}
-          </button>
-          <button onClick={() => {if(window.confirm('Remove?')) onRemove(target.id);}} className="flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-red-600">
-            <Trash2 size={20} /> <span className="text-[10px] font-semibold mt-1">Remove</span>
-          </button>
+          <button onClick={() => {if(window.confirm('Remove?')) onRemove(target.id)}} className="flex flex-col items-center p-3 rounded-2xl glass-card text-red-600"><Trash2 size={20} /><span className="text-[10px] mt-1">Delete</span></button>
         </div>
 
-        <div className="glass-card p-5 overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-              <button onClick={() => setDayOffset(d => d + 1)} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl"><ChevronLeft size={18} /></button>
-              <h2 className="text-sm font-bold w-32 text-center uppercase">{dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : getDayLabel()}</h2>
-              <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl disabled:opacity-30"><ChevronRight size={18} /></button>
+        <div className="glass-card p-5">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center space-x-2">
+                <button onClick={() => setDayOffset(d => d + 1)} className="p-1 bg-gray-100 rounded-lg"><ChevronLeft size={18} /></button>
+                <span className="text-xs font-bold w-20 text-center">{dayOffset === 0 ? "TODAY" : getDayLabel()}</span>
+                <button onClick={() => setDayOffset(d => Math.max(0, d-1))} disabled={dayOffset===0} className="p-1 bg-gray-100 rounded-lg"><ChevronRight size={18} /></button>
+            </div>
+            <div className="text-right"><p className="text-[10px] font-bold text-gray-500 uppercase">Total</p><p className="text-2xl font-black text-blue-600">{localStats.totalTime}</p></div>
           </div>
-          <div className="text-center">
-              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Total Online</p>
-              <p className="text-3xl font-black text-blue-600">{localStats.totalTime}</p>
-          </div>
-          <div className="mt-6 w-full h-24 relative -mx-1">
+          <div className="h-24 w-full mt-4">
             <svg viewBox={`0 0 230 ${chartHeight}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
-              <path d={areaD} fill="url(#colorActivity)" opacity="0.3" />
-              <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="4" />
+              <path d={`${pathD} L 230,${chartHeight} L 0,${chartHeight} Z`} fill="#3B82F6" fillOpacity="0.1" />
+              <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="3" />
             </svg>
           </div>
         </div>
@@ -583,91 +518,131 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 });
 
 const TargetCard = memo(function TargetCard({ target, onClick, isPinnedItem, isPrivacyMode }) {
-  const displayNum = isPrivacyMode ? `${target.number.slice(0, 5)}***${target.number.slice(-4)}` : target.number;
-  const displayName = isPrivacyMode ? target.name.charAt(0) + "***" : target.name;
-
+  const maskNumber = (num) => {
+    if(!isPrivacyMode) return num;
+    return num.length > 6 ? `${num.slice(0, 4)}***${num.slice(-2)}` : '**********';
+  };
   return (
     <div onClick={onClick} className="glass-card p-4 flex items-center active:scale-[0.98] transition-transform cursor-pointer group">
-      {isPinnedItem && <div className="mr-2 text-gray-400 p-1"><GripVertical size={18} /></div>}
-      <div className="relative mr-4">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-card`}>
-          <span className={`text-lg font-bold text-gray-500 ${isPrivacyMode ? 'blur-[2px]' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
-        </div>
+      {isPinnedItem && <div className="mr-2 text-gray-300"><GripVertical size={18} /></div>}
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 mr-4 ${target.isOnline ? 'border-green-500' : 'border-gray-200'}`}>
+        <span className="text-lg font-bold text-gray-400">{target.name.charAt(0).toUpperCase()}</span>
       </div>
       <div className="flex-1 min-w-0">
-        <h3 className={`font-bold text-lg truncate ${isPrivacyMode ? 'blur-[3px] select-none' : ''}`}>{displayName}</h3>
-        <p className="text-sm text-gray-500 truncate mt-0.5">{target.isOnline ? "Online Now" : `Seen: ${target.lastSeen}`}</p>
+        <h3 className={`font-bold truncate privacy-mask`}>{target.name}</h3>
+        <p className="text-xs text-gray-500 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 font-bold">Online</span> : <span>Seen: {target.lastSeen}</span>}</p>
+        {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-0.5">+{maskNumber(target.number)}</p>}
       </div>
-      <div className="text-right flex flex-col items-end">
-        <div className="bg-blue-100 text-blue-700 font-bold text-sm px-3 py-1 rounded-xl mb-1">{target.totalTime}</div>
-        <ChevronRight size={18} className="text-gray-400" />
+      <div className="text-right">
+        <div className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{target.totalTime}</div>
       </div>
     </div>
   );
 });
 
-const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }) {
+const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig, isPrivacyMode }) {
   const [targetA, setTargetA] = useState(targets[0]?.number || '');
   const [targetB, setTargetB] = useState(targets[1]?.number || '');
   const [dayOffset, setDayOffset] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const [overlapStats, setOverlapStats] = useState({ totalOverlapStr: '0m', overlaps: [] });
 
+  useEffect(() => {
+    if (!apiConfig.url || !apiConfig.key || !targetA || !targetB) return;
+    const fetchComparison = async () => {
+      setIsLoading(true);
+      try {
+        const d = new Date(); d.setDate(d.getDate() - dayOffset);
+        const dateStr = `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+        const [resA, resB] = await Promise.all([
+          mongoFetch('find', targetA, { date: dateStr }, { timestamp: -1 }, 5000),
+          mongoFetch('find', targetB, { date: dateStr }, { timestamp: -1 }, 5000)
+        ]);
+        const logsA = (resA?.documents || []).map(r => ({ s: r.timestamp, e: r.timestamp + (r.durationMs || 0) }));
+        const logsB = (resB?.documents || []).map(r => ({ s: r.timestamp, e: r.timestamp + (r.durationMs || 0) }));
+        let total = 0; let found = [];
+        logsA.forEach(a => {
+           logsB.forEach(b => {
+               const s = Math.max(a.s, b.s); const e = Math.min(a.e, b.e);
+               if (s < e) { 
+                   total += (e - s); 
+                   const ds = new Date(s); const de = new Date(e);
+                   found.push({ start: `${ds.getHours()}:${ds.getMinutes()}`, end: `${de.getHours()}:${de.getMinutes()}`, dur: e - s });
+               }
+           });
+        });
+        const m = Math.floor(total / 60000);
+        setOverlapStats({ totalOverlapStr: `${m}m`, overlaps: found });
+      } catch (e) { }
+      setIsLoading(false);
+    };
+    fetchComparison();
+  }, [targetA, targetB, dayOffset, apiConfig, mongoFetch]);
+
   return (
-    <div className="p-6 pt-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <h1 className="text-4xl font-extrabold tracking-tight mb-6">Compare</h1>
-      <div className="glass-card p-4 mb-6 space-y-4">
-        <select className="w-full bg-card border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-500 appearance-none" value={targetA} onChange={e => setTargetA(e.target.value)}>
-          {targets.map(t => <option key={t.id} value={t.number}>{t.name}</option>)}
+    <div className="p-6 pt-12 animate-in fade-in h-[100dvh] flex flex-col">
+      <h1 className="text-4xl font-extrabold mb-6">Compare</h1>
+      <div className="glass-card p-4 mb-4 space-y-3">
+        <select className="w-full bg-transparent text-sm font-bold border-none" value={targetA} onChange={e=>setTargetA(e.target.value)}>
+            {targets.map(t=><option key={t.id} value={t.number}>{isPrivacyMode ? 'Target A' : t.name}</option>)}
         </select>
-        <select className="w-full bg-card border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-purple-500 appearance-none" value={targetB} onChange={e => setTargetB(e.target.value)}>
-          {targets.map(t => <option key={t.id} value={t.number}>{t.name}</option>)}
+        <select className="w-full bg-transparent text-sm font-bold border-none" value={targetB} onChange={e=>setTargetB(e.target.value)}>
+            {targets.map(t=><option key={t.id} value={t.number}>{isPrivacyMode ? 'Target B' : t.name}</option>)}
         </select>
       </div>
-      <p className="text-center text-sm font-bold uppercase text-gray-500">Total Intersection</p>
-      <p className="text-4xl font-black text-center text-blue-600 mb-6">{overlapStats.totalOverlapStr}</p>
+      <div className="glass-card flex-1 p-5 overflow-y-auto">
+        {isLoading ? <RefreshCw className="animate-spin mx-auto mt-10 text-blue-500" /> : (
+            <>
+            <p className="text-center text-3xl font-black text-blue-600 mb-4">{overlapStats.totalOverlapStr}</p>
+            <div className="space-y-2">
+                {overlapStats.overlaps.map((o,i)=>(
+                    <div key={i} className="flex justify-between text-xs font-bold bg-blue-50 p-2 rounded-lg">
+                        <span>{o.start} - {o.end}</span><span>{Math.floor(o.dur/60000)}m</span>
+                    </div>
+                ))}
+            </div>
+            </>
+        )}
+      </div>
     </div>
   );
 });
 
 const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, theme, setTheme, newTarget, setNewTarget, handleAddTarget, pingStats }) {
   const themes = [
-    { id: 'light-classic', name: 'Light (Classic)', icon: <Sun size={16} /> },
-    { id: 'light-system', name: 'Light (System)', icon: <Palette size={16} /> },
-    { id: 'dark-classic', name: 'Dark (Classic)', icon: <Moon size={16} /> },
-    { id: 'dark-amoled', name: 'Dark (AMOLED)', icon: <Zap size={16} /> },
+    { id: 'light-classic', name: 'Classic', color: 'bg-white', text: 'text-gray-900' },
+    { id: 'light-system', name: 'System', color: 'bg-indigo-50', text: 'text-indigo-900' },
+    { id: 'dark-classic', name: 'Standard', color: 'bg-gray-800', text: 'text-white' },
+    { id: 'dark-amoled', name: 'AMOLED', color: 'bg-black', text: 'text-white' }
   ];
 
   return (
-    <div className="p-6 pt-4 animate-in fade-in slide-in-from-bottom-4 duration-500 mb-24">
-      <h1 className="text-4xl font-extrabold tracking-tight mb-6">Settings</h1>
+    <div className="p-6 pt-12 animate-in fade-in space-y-8">
+      <h1 className="text-4xl font-extrabold mb-6">Settings</h1>
       
-      <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3 ml-4">App Theme</h3>
+      <div>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 ml-2">App Theme</h3>
         <div className="grid grid-cols-2 gap-3">
-          {themes.map((t) => (
-            <button 
-              key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={`flex items-center justify-center p-4 rounded-2xl border-2 transition-all active:scale-95 text-sm font-bold ${theme === t.id ? 'bg-blue-600 text-white border-blue-500 shadow-md' : 'bg-card border-gray-200 dark:border-gray-700 text-gray-500'}`}
-            >
-              <span className="mr-2">{t.icon}</span> {t.name}
+          {themes.map(t => (
+            <button key={t.id} onClick={() => setTheme(t.id)} className={`p-4 rounded-2xl border-2 transition-all text-sm font-bold ${theme === t.id ? 'border-blue-500 scale-105' : 'border-transparent glass-card'} ${t.color} ${t.text}`}>
+              {t.name}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3 ml-4">Quick Add</h3>
-        <div className="glass-card p-4 space-y-3">
-          <input type="text" placeholder="Name" value={newTarget.name} onChange={(e) => setNewTarget({...newTarget, name: e.target.value})} className="w-full bg-app border-none rounded-xl px-4 py-3 text-sm" />
-          <input type="tel" placeholder="Number" value={newTarget.number} onChange={(e) => setNewTarget({...newTarget, number: e.target.value})} className="w-full bg-app border-none rounded-xl px-4 py-3 text-sm" />
-          <button onClick={handleAddTarget} disabled={!newTarget.number} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md">Add Target</button>
+      <div className="glass-card p-4">
+        <h3 className="text-xs font-bold text-gray-500 uppercase mb-3">Quick Add</h3>
+        <div className="flex gap-2">
+            <input type="text" placeholder="Name" className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm" value={newTarget.name} onChange={e=>setNewTarget({...newTarget, name: e.target.value})} />
+            <input type="tel" placeholder="Number" className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm" value={newTarget.number} onChange={e=>setNewTarget({...newTarget, number: e.target.value})} />
+            <button onClick={handleAddTarget} className="bg-blue-600 text-white p-2 rounded-xl"><Plus size={20}/></button>
         </div>
       </div>
 
-      <div className="glass-card overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
-        <div className="p-4"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full bg-transparent border-none p-0 text-sm font-medium" /></div>
-        <div className="p-4"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full bg-transparent border-none p-0 text-sm font-medium" /></div>
+      <div className="glass-card overflow-hidden divide-y divide-gray-100">
+        <div className="p-4"><label className="text-[10px] font-bold text-gray-400 uppercase">Proxy URL</label><input type="text" value={apiConfig.url} onChange={e=>setApiConfig({...apiConfig, url: e.target.value})} className="w-full bg-transparent text-sm font-medium outline-none mt-1" /></div>
+        <div className="p-4"><label className="text-[10px] font-bold text-gray-400 uppercase">Secret Key</label><input type="password" value={apiConfig.key} onChange={e=>setApiConfig({...apiConfig, key: e.target.value})} className="w-full bg-transparent text-sm font-medium outline-none mt-1" /></div>
       </div>
     </div>
   );
