@@ -1,9 +1,7 @@
 @import "tailwindcss";
 
-/* 1. Tailwind v4 Theme & Custom Variants */
-@custom-variant dark-classic (&:is(.theme-dark-classic *));
-@custom-variant dark-amoled (&:is(.theme-dark-amoled *));
-@custom-variant light-system (&:is(.theme-light-system *));
+/* 1. Tailwind v4 Theme & Dark Mode Configuration */
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -13,48 +11,90 @@
 @utility scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-/* 3. Theme-Aware Modern Cards */
+/* --- UPDATED: ADVANCED THEME ENGINE VARIABLES --- */
+:root {
+  /* Default: Light Classic */
+  --bg-main: #f9fafb;
+  --bg-card: #ffffff;
+  --text-main: #111827;
+  --border-main: #e5e7eb;
+}
+
+[data-theme="light-system"] {
+  --bg-main: #f3f6ff;
+  --bg-card: #ffffff;
+  --text-main: #1e293b;
+  --border-main: #dbeafe;
+}
+
+[data-theme="dark-classic"] {
+  --bg-main: #0a0a0a;
+  --bg-card: #1f2937;
+  --text-main: #f9fafb;
+  --border-main: #374151;
+}
+
+[data-theme="dark-amoled"] {
+  --bg-main: #000000;
+  --bg-card: #000000;
+  --text-main: #ffffff;
+  --border-main: #1a1a1a;
+}
+
+@utility theme-bg {
+  background-color: var(--bg-main);
+}
+
+@utility theme-card {
+  background-color: var(--bg-card);
+}
+
+@utility theme-text {
+  color: var(--text-main);
+}
+
+@utility theme-border {
+  border-color: var(--border-main);
+}
+
+@utility theme-divider {
+  @apply border-gray-200 dark:border-gray-800;
+}
+
+/* 3. Solid Modern Cards (Zero Blur for Max Performance) */
 @utility glass-card {
-  @apply border shadow-sm rounded-[24px] transition-colors duration-200;
-  @apply bg-white border-gray-200;
-  :is(.theme-light-system &) { @apply bg-white/90 border-indigo-100 shadow-indigo-100/20; }
-  :is(.theme-dark-classic &) { @apply bg-gray-800 border-gray-700; }
-  :is(.theme-dark-amoled &) { @apply bg-black border-gray-800; }
+  @apply border shadow-sm rounded-[24px];
+  background-color: var(--bg-card);
+  border-color: var(--border-main);
 }
 
 @utility glass-panel {
-  @apply border shadow-xl transition-colors duration-200;
-  @apply bg-white border-gray-200;
-  :is(.theme-light-system &) { @apply bg-white/95 border-indigo-100; }
-  :is(.theme-dark-classic &) { @apply bg-gray-900 border-gray-800; }
-  :is(.theme-dark-amoled &) { @apply bg-black border-gray-800; }
+  @apply border shadow-xl;
+  background-color: var(--bg-card);
+  border-color: var(--border-main);
 }
 
-/* 4. Privacy Masking Utilities */
-@utility privacy-mask {
-  @apply transition-all duration-300;
-  :is(.privacy-active &) { @apply blur-[4px] select-none pointer-events-none; }
-}
-
-/* 5. Global App Styling (Dynamic Backgrounds) */
+/* 4. Global App Styling */
 body {
   @apply m-0 antialiased overflow-hidden transition-colors duration-200;
+  background-color: var(--bg-main);
+  color: var(--text-main);
   font-family: var(--font-sans);
-  @apply bg-gray-50 text-gray-900;
 }
-
-:root.theme-light-system body { @apply bg-indigo-50/50; }
-:root.theme-dark-classic body { @apply bg-gray-950 text-gray-100; }
-:root.theme-dark-amoled body { @apply bg-black text-gray-100; }
 
 #root {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh;
+  height: 100dvh; /* Dynamic viewport height for mobile browsers */
 }
 
-input::placeholder { @apply text-gray-400; }
+/* Fix for inputs in light mode */
+input::placeholder {
+  @apply text-gray-400 dark:text-gray-500;
+}
