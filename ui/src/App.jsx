@@ -341,6 +341,7 @@ export default function App() {
               isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} 
               currentTheme={currentTheme} setCurrentTheme={setCurrentTheme}
               newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} mongoFetch={mongoFetch}
+              botStatus={botStatus} // Passed down to SettingsView
             />
           )}
         </div>
@@ -885,7 +886,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     { id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
@@ -906,6 +907,26 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24">
       <h1 className="text-4xl font-extrabold tracking-tight mb-6">Settings</h1>
       
+      {/* NEW: Bot Connection Status Card */}
+      <div className="mb-8">
+        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Bot Connection Status</h3>
+        <div className={`glass-card p-4 flex items-center space-x-4 border-l-4 transition-all duration-300 ${botStatus.status === 'connected' ? 'border-l-green-500' : 'border-l-red-500'}`}>
+          <div className={`p-3 rounded-full ${botStatus.status === 'connected' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>
+            {botStatus.status === 'connected' ? <CheckCircle2 size={24} /> : <QrCode size={24} />}
+          </div>
+          <div className="flex-1">
+            <h4 className="font-bold text-gray-900 dark:text-white">
+              {botStatus.status === 'connected' ? 'WhatsApp Connected' : 'WhatsApp Disconnected'}
+            </h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+              {botStatus.status === 'connected' 
+                ? 'The backend bot is running and working well.' 
+                : 'Bot is waiting for QR login. Check the overlay.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="mb-6">
         <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Workspace Theme</h3>
         <div className="grid grid-cols-2 gap-3">
