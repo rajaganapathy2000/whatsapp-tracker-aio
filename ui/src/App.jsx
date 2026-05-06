@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
   Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette,
-  Battery, BatteryCharging
+  Battery, BatteryCharging, Power, QrCode
 } from 'lucide-react';
 
 export default function App() {
@@ -18,7 +18,6 @@ export default function App() {
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
-  
   // NEW: Initialize targets directly from local cache for instant Offline-First load
   const [targets, setTargets] = useState(() => {
     const cachedTargets = localStorage.getItem('waTrackerCachedTargets');
@@ -30,7 +29,10 @@ export default function App() {
   
   // NEW: Bot Health State
   const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false });
-
+  
+  // NEW: Bot Status for QR Login
+  const [botStatus, setBotStatus] = useState({ status: 'connected', qrString: null });
+  
   // Prevent stale closures in our debounce function
   const fetchLiveStateRef = useRef();
 
@@ -98,6 +100,12 @@ export default function App() {
     const configRes = await mongoFetch('findOne', 'system_config', { _id: 'main_config' });
     const contactsRes = await mongoFetch('findOne', 'system_config', { _id: 'contacts_map' });
     const healthRes = await mongoFetch('findOne', 'system_config', { _id: 'bot_health' });
+    
+    // NEW: Fetch QR/Login Status
+    const statusRes = await mongoFetch('findOne', 'system_config', { _id: 'bot_status' });
+    if (statusRes?.document) {
+        setBotStatus({ status: statusRes.document.status, qrString: statusRes.document.qrString });
+    }
     
     const configDoc = configRes?.document || { targets: [], muted: [] };
     const contactsDoc = contactsRes?.document?.contacts || {};
@@ -293,7 +301,22 @@ export default function App() {
     <div className={`wa-app-container`}>
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         
-        {/* Stealth Mode Header Button */}
+        {/* NEW: Headless QR Login Screen Overlay */}
+        {botStatus.status === 'qr_required' && botStatus.qrString && (
+          <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in">
+            <div className="glass-panel border-red-500/30 shadow-2xl shadow-red-900/20 p-8 flex flex-col items-center text-center max-w-sm w-full relative rounded-[3rem]">
+              <QrCode size={48} className="text-red-500 mb-4" />
+              <h2 className="text-2xl font-bold mb-2">WhatsApp Logged Out</h2>
+              <p className="text-gray-400 text-sm mb-6">The Termux backend lost connection. Scan this QR code with your secondary phone to instantly resume tracking.</p>
+              <div className="bg-white p-3 rounded-2xl mb-6 shadow-inner">
+                {/* Zero-Dependency QR Generation API */}
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(botStatus.qrString)}`} alt="Login QR" className="w-48 h-48" />
+              </div>
+              <p className="text-xs text-gray-500 animate-pulse font-mono tracking-widest uppercase">Waiting for scan...</p>
+            </div>
+          </div>
+        )}
+
         {!viewingTarget && (
           <div className="absolute top-12 right-6 z-50">
             <button onClick={() => setIsPrivacyMode(!isPrivacyMode)} className="p-3 glass-card rounded-full transition-all active:scale-90 text-gray-500">
@@ -317,7 +340,7 @@ export default function App() {
               apiConfig={apiConfig} setApiConfig={setApiConfig} 
               isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} 
               currentTheme={currentTheme} setCurrentTheme={setCurrentTheme}
-              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} 
+              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} mongoFetch={mongoFetch}
             />
           )}
         </div>
@@ -348,7 +371,6 @@ export default function App() {
 const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Persist the sort option using localStorage
   const [sortOption, setSortOption] = useState(() => localStorage.getItem('waTrackerSort') || 'default');
 
   useEffect(() => {
@@ -863,7 +885,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     { id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
@@ -871,6 +893,14 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
     { id: 'dark-colorful', name: 'Dark Color', icon: <Palette size={18} />, color: 'bg-slate-900' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
   ];
+
+  // NEW: Restart Button Handler
+  const handleRestartBot = async () => {
+    if (window.confirm('Are you sure you want to restart the Termux backend bot?')) {
+      await mongoFetch('updateOne', 'system_config', { _id: 'remote_restart' }, {}, null, { $set: { pending: true } });
+      alert('Restart command sent! Termux PM2 will reboot the bot in ~5 seconds.');
+    }
+  };
 
   return (
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24">
@@ -915,6 +945,14 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
           <div className="p-4 bg-blue-50 dark:bg-blue-900/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
           <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+          
+          {/* NEW: Remote Restart Button */}
+          <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
+            <button onClick={handleRestartBot} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
+              <Power size={18} />
+              <span>Restart Backend Bot</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

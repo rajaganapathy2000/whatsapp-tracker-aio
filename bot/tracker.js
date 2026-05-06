@@ -1591,10 +1591,22 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        
+        // NEW: Intercept QR code and push to MongoDB for the Web UI
         if (qr && loginMethod === 'qr') {
             console.log('\n[WA-AUTH] 📱 Scan this QR code with your secondary WhatsApp:\n');
             qrcode.generate(qr, { small: true });
+            if (db) {
+                try {
+                    await db.collection('system_config').updateOne(
+                        { _id: 'bot_status' },
+                        { $set: { status: 'qr_required', qrString: qr, lastUpdated: Date.now() } },
+                        { upsert: true }
+                    );
+                } catch(e) {}
+            }
         }
+        
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('\n[WA-SOCKET] ⚠️ Connection closed. Reconnecting:', shouldReconnect);
@@ -1602,13 +1614,23 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
                 process.exit(1);
             } else {
-                console.log('[WA-SOCKET] ❌ Logged out. Please restart the script and choose a fresh start.');
-                process.exit(1);
+                console.log('[WA-SOCKET] ❌ Logged out. The Web UI will now display a new QR Code.');
+                process.exit(1); // Exiting allows PM2 to restart the bot, which automatically generates the fresh QR code on reboot
             }
         } else if (connection === 'open') {
             console.log('\n[WA-SOCKET] ✅ Connected successfully!');
             
-            // Explicitly broadcast presence to force server to send target statuses back
+            // NEW: Clear QR code status from MongoDB
+            if (db) {
+                try {
+                    await db.collection('system_config').updateOne(
+                        { _id: 'bot_status' },
+                        { $set: { status: 'connected', qrString: null, lastUpdated: Date.now() } },
+                        { upsert: true }
+                    );
+                } catch(e) {}
+            }
+            
             try {
                 await sock.sendPresenceUpdate('available');
             } catch (e) {}
@@ -1896,6 +1918,56 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     });
 }
 
+// ================= ZERO-DEPENDENCY BATTERY FETCH =================
+async function getBatteryStatus() {
+    return new Promise((resolve) => {
+        // 1. Try Termux (Android)
+        exec('termux-battery-status', (err, stdout) => {
+            if (!err && stdout) {
+                try {
+                    const data = JSON.parse(stdout);
+                    return resolve({ battery: data.percentage, isCharging: data.status === 'CHARGING' || data.status === 'FULL' });
+                } catch(e) {}
+            }
+            
+            // 2. Try Windows
+            if (process.platform === 'win32') {
+                exec('WMIC Path Win32_Battery Get EstimatedChargeRemaining, BatteryStatus', (err2, stdout2) => {
+                    if (!err2 && stdout2) {
+                        const lines = stdout2.split('\n').map(l => l.trim()).filter(l => l);
+                        if (lines.length > 1) {
+                            const parts = lines[1].split(/\s+/);
+                            if (parts.length >= 2) {
+                                return resolve({ battery: parseInt(parts[1]), isCharging: parseInt(parts[0]) === 2 });
+                            }
+                        }
+                    }
+                    return resolve({ battery: null, isCharging: false });
+                });
+                return;
+            }
+            
+            // 3. Try macOS / Linux
+            if (process.platform === 'darwin' || process.platform === 'linux') {
+                exec('pmset -g batt', (err3, stdout3) => {
+                    if(!err3 && stdout3) {
+                        const match = stdout3.match(/(\d+)%;\s*(charging|discharging|AC attached)/i);
+                        if (match) {
+                            return resolve({ battery: parseInt(match[1]), isCharging: match[2].toLowerCase() !== 'discharging' });
+                        }
+                    }
+                    return resolve({ battery: null, isCharging: false });
+                });
+                return;
+            }
+            
+            // Default Fallback
+            resolve({ battery: null, isCharging: false });
+        });
+    });
+}
+// ===============================================================
+
 async function main() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const question = (q) => new Promise(res => rl.question(q, res));
@@ -1936,7 +2008,7 @@ async function main() {
     // Load entire config from Cloud
     await loadCloudConfig();
     await loadCloudContacts();
-    await loadCloudLidMap(); // Sync lid mappings on startup
+    await loadCloudLidMap(); // Sync mapping state continuously
 
     let useExistingAuth = fs.existsSync(AUTH_DIR);
     if (isAuto) {
@@ -2032,21 +2104,50 @@ async function main() {
                 }
             }, 5 * 60 * 1000);
 
-            // 5-SECOND TRACKLIVE DASHBOARD AUTO-UPDATE (State-checked)
+            // 5-SECOND LOOP: TrackLive update AND Remote Restart listener
             setInterval(async () => {
-                if (isPrimary && activeLiveDashboard.msgId) {
-                    const { textOut, kb, page } = await renderTrackLive(activeLiveDashboard.page);
-                    if (textOut !== activeLiveDashboard.lastText) {
-                        const isEdited = await editTelegramMessage(activeLiveDashboard.msgId, textOut, kb);
-                        if (isEdited) {
-                            activeLiveDashboard.lastText = textOut;
-                        } else {
-                            // Message was deleted or not found, clear tracker memory
-                            activeLiveDashboard.msgId = null;
+                if (isPrimary) {
+                    // NEW: Check for Remote Restart Signal
+                    if (db) {
+                        try {
+                            const restartCmd = await db.collection('system_config').findOne({ _id: 'remote_restart' });
+                            if (restartCmd && restartCmd.pending) {
+                                await db.collection('system_config').updateOne({ _id: 'remote_restart' }, { $set: { pending: false } });
+                                console.log("\n[SYS] 🔄 Remote PM2 restart triggered from Web UI!");
+                                process.exit(1);
+                            }
+                        } catch(e){}
+                    }
+
+                    if (activeLiveDashboard.msgId) {
+                        const { textOut, kb, page } = await renderTrackLive(activeLiveDashboard.page);
+                        if (textOut !== activeLiveDashboard.lastText) {
+                            const isEdited = await editTelegramMessage(activeLiveDashboard.msgId, textOut, kb);
+                            if (isEdited) {
+                                activeLiveDashboard.lastText = textOut;
+                            } else {
+                                activeLiveDashboard.msgId = null;
+                            }
                         }
                     }
                 }
             }, 5 * 1000);
+
+            // 60-SECOND BOT HEALTH MONITOR (BATTERY)
+            setInterval(async () => {
+                if (isPrimary && db) {
+                    try {
+                        const health = await getBatteryStatus();
+                        if (health.battery !== null) {
+                            await db.collection('system_config').updateOne(
+                                { _id: 'bot_health' },
+                                { $set: { battery: health.battery, isCharging: health.isCharging, lastUpdated: Date.now() } },
+                                { upsert: true }
+                            );
+                        }
+                    } catch (e) { }
+                }
+            }, 60000);
         }
     };
 
