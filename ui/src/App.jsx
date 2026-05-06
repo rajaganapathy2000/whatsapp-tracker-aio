@@ -921,9 +921,9 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
 const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
-    { id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
-    { id: 'dark-classic', name: 'Dark Grey', icon: <Moon size={18} />, color: 'bg-gray-700' },
-    { id: 'dark-colorful', name: 'Dark Color', icon: <Palette size={18} />, color: 'bg-slate-900' },
+    //{ id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
+    //{ id: 'dark-classic', name: 'Dark Grey', icon: <Moon size={18} />, color: 'bg-gray-700' },
+    //{ id: 'dark-colorful', name: 'Dark Color', icon: <Palette size={18} />, color: 'bg-slate-900' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
   ];
 
