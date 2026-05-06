@@ -92,17 +92,22 @@ export default function App() {
     }
   }, [apiConfig.url, apiConfig.key]);
 
-  // --- DASHBOARD SYNC ENGINE ---
+  // --- DASHBOARD SYNC ENGINE (INSTANT LOAD UPGRADE) ---
   const fetchLiveState = useCallback(async () => {
     if (!apiConfig.url || !apiConfig.key) return;
     setIsSyncing(true);
     
-    const configRes = await mongoFetch('findOne', 'system_config', { _id: 'main_config' });
-    const contactsRes = await mongoFetch('findOne', 'system_config', { _id: 'contacts_map' });
-    const healthRes = await mongoFetch('findOne', 'system_config', { _id: 'bot_health' });
+    // THE FIX: The "Team of Runners"
+    // Send all 5 global requests to MongoDB at the exact same millisecond using Promise.all
+    const [configRes, contactsRes, healthRes, statusRes, sessionsRes] = await Promise.all([
+      mongoFetch('findOne', 'system_config', { _id: 'main_config' }),
+      mongoFetch('findOne', 'system_config', { _id: 'contacts_map' }),
+      mongoFetch('findOne', 'system_config', { _id: 'bot_health' }),
+      mongoFetch('findOne', 'system_config', { _id: 'bot_status' }),
+      mongoFetch('find', 'pending_sessions', {}, {}, 100)
+    ]);
     
-    // NEW: Fetch QR/Login Status
-    const statusRes = await mongoFetch('findOne', 'system_config', { _id: 'bot_status' });
+    // Fetch QR/Login Status
     if (statusRes?.document) {
         setBotStatus({ status: statusRes.document.status, qrString: statusRes.document.qrString });
     }
@@ -117,74 +122,101 @@ export default function App() {
       });
     }
 
-    const sessionsRes = await mongoFetch('find', 'pending_sessions', {}, {}, 100);
     const activeSessions = sessionsRes?.documents || [];
     const onlineIds = activeSessions.map(s => s._id);
 
-    const today = new Date();
-    const todayStr = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${today.getFullYear()}`;
-    
-    const statsPromises = configDoc.targets.map(async (num) => {
-      try {
-        const res = await mongoFetch('find', num, { date: todayStr }, { timestamp: -1 }, 5000);
-        const records = res?.documents || [];
-        let todayMs = records.reduce((acc, r) => acc + (r.durationMs || 0), 0);
-        let recentOffline = "Never";
-        let recentOfflineMs = 0;
-        
-        if (records.length > 0) {
-           recentOffline = records[0].offlineTime || "Unknown";
-           recentOfflineMs = records[0].timestamp + (records[0].durationMs || 0);
-        } else {
-           const lastRecRes = await mongoFetch('find', num, {}, { timestamp: -1 }, 1);
-           if (lastRecRes?.documents?.length > 0) {
-             const lr = lastRecRes.documents[0];
-             recentOffline = `${lr.date.slice(0,5)} ${lr.offlineTime || ''}`;
-             recentOfflineMs = lr.timestamp + (lr.durationMs || 0);
-           }
-        }
-        return { num, todayMs, recentOffline, recentOfflineMs };
-      } catch (e) {
-        return { num, todayMs: 0, recentOffline: "Error", recentOfflineMs: 0 };
-      }
-    });
-
-    const statsArray = await Promise.all(statsPromises);
-    const statsMap = {};
-    statsArray.forEach(s => { statsMap[s.num] = s; });
-
+    // THE MAGIC TRICK: Instant UI Update
+    // Instantly update who is online vs offline without waiting for the heavy math to finish
     setTargets(prevTargets => {
-      return configDoc.targets.map((num) => {
+      return configDoc.targets.map(num => {
         const existing = prevTargets.find(t => t.number === num);
         const isOnline = onlineIds.includes(num);
-        
-        let todayMs = statsMap[num]?.todayMs || 0;
-        let lastOffline = statsMap[num]?.recentOffline || "Never";
-        let lastActiveMs = statsMap[num]?.recentOfflineMs || 0;
-
-        if (isOnline) {
-          const pendingSession = activeSessions.find(s => s._id === num);
-          if (pendingSession) {
-             todayMs += (Date.now() - pendingSession.onlineStartTime);
-             lastActiveMs = Date.now();
-          }
-        }
-
-        const h = Math.floor(todayMs / 3600000);
-        const m = Math.floor((todayMs % 3600000) / 60000);
-        const totalTimeStr = todayMs > 0 ? (h > 0 ? `${h}h ${m}m` : `${m}m`) : '0m';
 
         return {
-          id: num, number: num, name: contactsDoc[num] || num, isOnline, totalTime: totalTimeStr,
-          lastSeen: isOnline ? 'Active Now' : lastOffline,
-          lastActiveMs,
-          isPinned: existing ? existing.isPinned : false, pinOrder: existing ? existing.pinOrder : 99,
+          id: num, 
+          number: num, 
+          name: contactsDoc[num] || num, 
+          isOnline, 
+          totalTime: existing ? existing.totalTime : '0m', // Use old time temporarily
+          lastSeen: isOnline ? 'Active Now' : (existing ? existing.lastSeen : 'Loading...'),
+          lastActiveMs: isOnline ? Date.now() : (existing ? existing.lastActiveMs : 0),
+          isPinned: existing ? existing.isPinned : false, 
+          pinOrder: existing ? existing.pinOrder : 99,
           isMuted: configDoc.muted.includes(num),
         };
       });
     });
 
+    // Make the UI feel completely loaded right now
     setIsSyncing(false);
+
+    // THE BACKGROUND MATH: N+1 History Fetching
+    // This runs quietly behind the scenes to fetch exact hours and minutes
+    const today = new Date();
+    const todayStr = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${today.getFullYear()}`;
+    
+    (async () => {
+      const statsPromises = configDoc.targets.map(async (num) => {
+        try {
+          const res = await mongoFetch('find', num, { date: todayStr }, { timestamp: -1 }, 5000);
+          const records = res?.documents || [];
+          let todayMs = records.reduce((acc, r) => acc + (r.durationMs || 0), 0);
+          let recentOffline = "Never";
+          let recentOfflineMs = 0;
+          
+          if (records.length > 0) {
+             recentOffline = records[0].offlineTime || "Unknown";
+             recentOfflineMs = records[0].timestamp + (records[0].durationMs || 0);
+          } else {
+             const lastRecRes = await mongoFetch('find', num, {}, { timestamp: -1 }, 1);
+             if (lastRecRes?.documents?.length > 0) {
+               const lr = lastRecRes.documents[0];
+               recentOffline = `${lr.date.slice(0,5)} ${lr.offlineTime || ''}`;
+               recentOfflineMs = lr.timestamp + (lr.durationMs || 0);
+             }
+          }
+          return { num, todayMs, recentOffline, recentOfflineMs };
+        } catch (e) {
+          return { num, todayMs: 0, recentOffline: "Error", recentOfflineMs: 0 };
+        }
+      });
+
+      const statsArray = await Promise.all(statsPromises);
+      const statsMap = {};
+      statsArray.forEach(s => { statsMap[s.num] = s; });
+
+      // Quietly update the total times onto the screen once calculated
+      setTargets(currentTargets => {
+        return currentTargets.map((target) => {
+          const num = target.number;
+          const isOnline = target.isOnline;
+          
+          let todayMs = statsMap[num]?.todayMs || 0;
+          let lastOffline = statsMap[num]?.recentOffline || "Never";
+          let lastActiveMs = statsMap[num]?.recentOfflineMs || 0;
+
+          if (isOnline) {
+            const pendingSession = activeSessions.find(s => s._id === num);
+            if (pendingSession) {
+               todayMs += (Date.now() - pendingSession.onlineStartTime);
+               lastActiveMs = Date.now();
+            }
+          }
+
+          const h = Math.floor(todayMs / 3600000);
+          const m = Math.floor((todayMs % 3600000) / 60000);
+          const totalTimeStr = todayMs > 0 ? (h > 0 ? `${h}h ${m}m` : `${m}m`) : '0m';
+
+          return {
+            ...target,
+            totalTime: totalTimeStr,
+            lastSeen: isOnline ? 'Active Now' : lastOffline,
+            lastActiveMs: lastActiveMs || target.lastActiveMs,
+          };
+        });
+      });
+    })(); // Self-executing async function for background processing
+
   }, [apiConfig.url, apiConfig.key, mongoFetch]);
 
   fetchLiveStateRef.current = fetchLiveState;
@@ -907,7 +939,7 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24">
       <h1 className="text-4xl font-extrabold tracking-tight mb-6">Settings</h1>
       
-      {/* NEW: Bot Connection Status Card */}
+      {/* Bot Connection Status Card */}
       <div className="mb-8">
         <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Bot Connection Status</h3>
         <div className={`glass-card p-4 flex items-center space-x-4 border-l-4 transition-all duration-300 ${botStatus.status === 'connected' ? 'border-l-green-500' : 'border-l-red-500'}`}>
@@ -967,7 +999,7 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
           <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           
-          {/* NEW: Remote Restart Button */}
+          {/* Remote Restart Button */}
           <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
             <button onClick={handleRestartBot} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
               <Power size={18} />
