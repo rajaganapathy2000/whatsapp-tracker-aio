@@ -313,6 +313,55 @@ async function saveCloudLidMap() {
     } catch (e) { }
 }
 
+// --- NEW: THE SECRETARY (0.01s Instant Load Fix) ---
+async function updateInstantUIStatus(targetNumber) {
+    if (!db) return;
+    try {
+        const todayStr = getFormattedDate(new Date());
+        const records = await db.collection(targetNumber).find({ date: todayStr }).sort({ timestamp: -1 }).toArray();
+
+        let todayMs = records.reduce((acc, r) => acc + (r.durationMs || 0), 0);
+        let recentOffline = "Never";
+        let recentOfflineMs = 0;
+
+        if (records.length > 0) {
+           recentOffline = records[0].offlineTime || "Unknown";
+           recentOfflineMs = records[0].timestamp + (records[0].durationMs || 0);
+        } else {
+           const lastRec = await db.collection(targetNumber).find().sort({ timestamp: -1 }).limit(1).toArray();
+           if (lastRec.length > 0) {
+             recentOffline = `${lastRec[0].date.slice(0,5)} ${lastRec[0].offlineTime || ''}`;
+             recentOfflineMs = lastRec[0].timestamp + (lastRec[0].durationMs || 0);
+           }
+        }
+
+        const isOnline = activeSessions[targetNumber]?.isOnline || false;
+        if (isOnline) {
+             const pendingDoc = await db.collection('pending_sessions').findOne({ _id: targetNumber });
+             if (pendingDoc) {
+                 todayMs += (Date.now() - pendingDoc.onlineStartTime);
+                 recentOffline = "Active Now";
+                 recentOfflineMs = Date.now();
+             }
+        }
+
+        await db.collection('system_config').updateOne(
+            { _id: 'instant_status' },
+            { $set: {
+                [`statuses.${targetNumber}`]: {
+                    todayMs,
+                    recentOffline,
+                    recentOfflineMs,
+                    isOnline
+                }
+            }},
+            { upsert: true }
+        );
+    } catch (e) {
+        console.error("[SYS] Error updating instant cache:", e.message);
+    }
+}
+
 // Blind Backup Fix & 15-Second Gap Fix: Sync state & re-ping when promoted
 async function syncActiveSessionsFromCloud() {
     if (!db) return;
@@ -343,6 +392,7 @@ async function syncActiveSessionsFromCloud() {
                     const jid = `${target}@s.whatsapp.net`;
                     await globalSock.presenceSubscribe(jid);
                     await updateLiveScoreboard(target); // Force generation on boot/failover
+                    await updateInstantUIStatus(target); // NEW: Initialize the Secretary cache
                     // Brief delay to avoid rate limits when spamming subscribe
                     await new Promise(r => setTimeout(r, 500)); 
                 } catch (e) {}
@@ -839,6 +889,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                     await saveCloudConfig();
                     reply(`✅ Added ${num} to tracking list.`);
                     await subscribeAndMapTarget(sock, num, true);
+                    await updateInstantUIStatus(num); // Initialize Secretary
                 } else {
                     reply(`⚠️ ${num} is already tracked.`);
                 }
@@ -905,6 +956,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                     }
                     reply(`✅ Added ${getContactName(num)} to tracking list.`);
                     await subscribeAndMapTarget(sock, num, true);
+                    await updateInstantUIStatus(num); // Initialize Secretary
                 } else {
                     reply(`⚠️ ${num} is already being tracked.`);
                 }
@@ -1278,6 +1330,7 @@ async function processCallback(query, sock) {
             config.targets.push(num);
             await saveCloudConfig();
             await subscribeAndMapTarget(sock, num, true);
+            await updateInstantUIStatus(num); // Initialize Secretary
             await editTelegramMessage(msgId, `✅ Added ${getContactName(num)} to tracking list.`, { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
         } else {
             await editTelegramMessage(msgId, `⚠️ ${getContactName(num)} is already tracked.`, { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
@@ -1824,6 +1877,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 activeSessions[targetNumber].isOnline = true; // Local tracker
                 const timeStr = now.toLocaleTimeString();
                 
+                await updateInstantUIStatus(targetNumber); // NEW: Secretary Update
                 // PUSHER REAL-TIME TRIGGER
                 if (pusherClient) {
                     pusherClient.trigger("whatsapp-tracker", "status-change", {
@@ -1898,6 +1952,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs); // MongoDB Append
                 await pendingCol.deleteOne({ _id: targetNumber }); // Clear Cloud Pending Session
                 
+                await updateInstantUIStatus(targetNumber); // NEW: Secretary Update
                 // Restore individual alerts for unmuted targets while keeping Live Scoreboard
                 if (!isDndActive()) {
                     if (!config.muted.includes(targetNumber)) {
@@ -2144,6 +2199,15 @@ async function main() {
                                 { $set: { battery: health.battery, isCharging: health.isCharging, lastUpdated: Date.now() } },
                                 { upsert: true }
                             );
+                        }
+                        
+                        // NEW: Secretary Status Tick (keeps active timers updating every minute)
+                        if (config && config.targets) {
+                             for (const target of config.targets) {
+                                  if (activeSessions[target]?.isOnline) {
+                                      await updateInstantUIStatus(target);
+                                  }
+                             }
                         }
                     } catch (e) { }
                 }
