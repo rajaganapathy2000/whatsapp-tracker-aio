@@ -17,6 +17,14 @@ export default function App() {
   const [currentTheme, setCurrentTheme] = useState('light-classic');
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
+  // NEW: Advanced Device & Stealth States
+  const [isWakeLockActive, setIsWakeLockActive] = useState(() => localStorage.getItem('waWakeLock') === 'true');
+  const [isBossKeyActive, setIsBossKeyActive] = useState(() => localStorage.getItem('waBossKey') === 'true');
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  
+  // NEW: Custom Restart Modal State
+  const [showRestartModal, setShowRestartModal] = useState(false);
+  
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
   // NEW: Initialize targets directly from local cache for instant Offline-First load
   const [targets, setTargets] = useState(() => {
@@ -35,6 +43,7 @@ export default function App() {
   
   // Prevent stale closures in our debounce function
   const fetchLiveStateRef = useRef();
+  const wakeLockRef = useRef(null);
 
   // --- LOCAL STORAGE PERSISTENCE ---
   useEffect(() => {
@@ -62,10 +71,56 @@ export default function App() {
     }
   }, [apiConfig, isDarkMode, currentTheme, isPrivacyMode]);
 
-  // NEW: Automatically cache targets array (saves pins and order) whenever it changes
+  useEffect(() => { localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets)); }, [targets]);
+  useEffect(() => { localStorage.setItem('waWakeLock', isWakeLockActive); }, [isWakeLockActive]);
+  useEffect(() => { localStorage.setItem('waBossKey', isBossKeyActive); }, [isBossKeyActive]);
+
+  // --- STEALTH & DEVICE APIs ---
   useEffect(() => {
-    localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets));
-  }, [targets]);
+    const requestWakeLock = async () => {
+      if (isWakeLockActive && 'wakeLock' in navigator) {
+        try { wakeLockRef.current = await navigator.wakeLock.request('screen'); } catch (err) { }
+      }
+    };
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current !== null) {
+        try { await wakeLockRef.current.release(); wakeLockRef.current = null; } catch (err) { }
+      }
+    };
+
+    if (isWakeLockActive) {
+      requestWakeLock();
+      const handleVisibilityChange = () => { if (document.visibilityState === 'visible') requestWakeLock(); };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        releaseWakeLock();
+      };
+    } else {
+      releaseWakeLock();
+    }
+  }, [isWakeLockActive]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (isBossKeyActive && document.visibilityState === 'hidden') {
+        document.title = 'Google Drive';
+        let link = document.querySelector("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.getElementsByTagName('head')[0].appendChild(link);
+        }
+        link.href = 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png';
+      } else {
+        document.title = 'WhatsApp Tracker Pro';
+        let link = document.querySelector("link[rel~='icon']");
+        if (link) link.href = '/tracker-icon.svg'; 
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isBossKeyActive]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
   const mongoFetch = useCallback(async (action, collection, query = {}, sort = {}, limit = null, update = {}) => {
@@ -92,7 +147,7 @@ export default function App() {
     }
   }, [apiConfig.url, apiConfig.key]);
 
-  // --- DASHBOARD SYNC ENGINE (0.01s SECRETARY FIX) ---
+  // --- DASHBOARD SYNC ENGINE (0.01s SECRETARY FIX + AUTO-LOAD PUSHER) ---
   const fetchLiveState = useCallback(async () => {
     if (!apiConfig.url || !apiConfig.key) return;
     setIsSyncing(true);
@@ -145,6 +200,16 @@ export default function App() {
     
     const configDoc = configRes?.document || { targets: [], muted: [] };
     const contactsDoc = contactsRes?.document?.contacts || {};
+
+    // Auto-load Pusher from MongoDB silently
+    if (configDoc.pusher && configDoc.pusher.key && configDoc.pusher.cluster) {
+      setApiConfig(prev => {
+        if (prev.pusherKey !== configDoc.pusher.key || prev.pusherCluster !== configDoc.pusher.cluster) {
+          return { ...prev, pusherKey: configDoc.pusher.key, pusherCluster: configDoc.pusher.cluster };
+        }
+        return prev;
+      });
+    }
 
     if (healthRes?.document) {
       setBotHealth({
@@ -293,11 +358,39 @@ export default function App() {
     });
   }, []);
 
+  // NEW: Submit Restart Logic
+  const submitRestart = async (isUpdate) => {
+    await mongoFetch('updateOne', 'system_config', { _id: 'remote_restart' }, {}, null, { $set: { pending: true, update: isUpdate } });
+    setShowRestartModal(false);
+    alert(isUpdate ? '☁️ Update & Restart command sent! The bot will download the latest code and reboot in ~5 seconds.' : '🔄 Restart command sent! The bot will reboot in ~5 seconds.');
+  };
+
   return (
     <div className={`wa-app-container`}>
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         
-        {/* NEW: Headless QR Login Screen Overlay */}
+        {/* Restart Options Modal */}
+        {showRestartModal && (
+          <div className="absolute inset-0 z-[110] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in">
+            <div className="glass-panel border-gray-200/20 shadow-2xl p-6 flex flex-col w-full max-w-xs relative rounded-3xl bg-white dark:bg-gray-900 text-center">
+              <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">Restart Options</h3>
+              <p className="text-sm text-gray-500 mb-6">Would you like to pull the latest code from GitHub before restarting?</p>
+              
+              <div className="flex flex-col space-y-3">
+                <button onClick={() => submitRestart(true)} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md transition-colors flex items-center justify-center space-x-2">
+                  <span className="text-lg">☁️</span> <span>Update & Restart</span>
+                </button>
+                <button onClick={() => submitRestart(false)} className="w-full py-3 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-800 dark:text-white rounded-xl font-bold transition-colors flex items-center justify-center space-x-2">
+                  <span className="text-lg">🔄</span> <span>Restart Only</span>
+                </button>
+                <button onClick={() => setShowRestartModal(false)} className="w-full py-3 text-red-500 font-bold transition-colors mt-2">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {botStatus.status === 'qr_required' && botStatus.qrString && (
           <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in">
             <div className="glass-panel border-red-500/30 shadow-2xl shadow-red-900/20 p-8 flex flex-col items-center text-center max-w-sm w-full relative rounded-[3rem]">
@@ -313,14 +406,6 @@ export default function App() {
           </div>
         )}
 
-        {!viewingTarget && (
-          <div className="absolute top-12 right-6 z-50">
-            <button onClick={() => setIsPrivacyMode(!isPrivacyMode)} className="p-3 glass-card rounded-full transition-all active:scale-90 text-gray-500">
-              {isPrivacyMode ? <EyeOff size={22} className="text-blue-500" /> : <Eye size={22} />}
-            </button>
-          </div>
-        )}
-
         <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10">
           {viewingTarget ? (
             <TargetDetailView 
@@ -328,7 +413,7 @@ export default function App() {
               onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
             />
           ) : activeTab === 'dashboard' ? (
-            <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
+            <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
           ) : activeTab === 'compare' ? (
             <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} />
           ) : (
@@ -338,20 +423,46 @@ export default function App() {
               currentTheme={currentTheme} setCurrentTheme={setCurrentTheme}
               newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} mongoFetch={mongoFetch}
               botStatus={botStatus} // Passed down to SettingsView
+              isWakeLockActive={isWakeLockActive} setIsWakeLockActive={setIsWakeLockActive}
+              isBossKeyActive={isBossKeyActive} setIsBossKeyActive={setIsBossKeyActive}
+              onRequestRestart={() => setShowRestartModal(true)} // Passed to Settings
             />
           )}
         </div>
 
+        {/* Updated Quick Action Wheel with Realistic Emojis */}
+        <div className="absolute bottom-20 right-6 z-[60] flex flex-col items-end space-y-3">
+          {showQuickActions && (
+             <div className="flex flex-col items-center space-y-3 mb-2 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                <button onClick={() => { setIsWakeLockActive(!isWakeLockActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isWakeLockActive ? 'bg-purple-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center`} title="Wake Lock">
+                    <span className="text-xl leading-none">☕</span>
+                </button>
+                <button onClick={() => { setIsBossKeyActive(!isBossKeyActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isBossKeyActive ? 'bg-indigo-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center`} title="Boss Key">
+                    <span className="text-xl leading-none">🕵️‍♂️</span>
+                </button>
+                <button onClick={() => { setShowRestartModal(true); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center" title="Restart Bot">
+                    <span className="text-xl leading-none">🔄</span>
+                </button>
+                <button onClick={() => { setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center" title="Settings">
+                    <span className="text-xl leading-none">⚙️</span>
+                </button>
+             </div>
+          )}
+          <button onClick={() => setShowQuickActions(!showQuickActions)} className={`p-4 rounded-full shadow-xl text-white transition-transform duration-300 ${showQuickActions ? 'bg-gray-800 rotate-45' : 'bg-blue-600 hover:bg-blue-700 active:scale-95'}`}>
+            <Plus size={24} />
+          </button>
+        </div>
+
         <div className="absolute bottom-0 w-full glass-card border-x-0 border-b-0 rounded-b-[3rem] pb-safe pt-3 px-6 flex justify-around items-center z-50">
-          <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+          <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
             <Home size={24} strokeWidth={activeTab === 'dashboard' && !viewingTarget ? 2.5 : 2} />
             <span className="text-[10px] font-medium mt-1">Dashboard</span>
           </button>
-          <button onClick={() => {setActiveTab('compare'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+          <button onClick={() => {setActiveTab('compare'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
             <GitCompare size={24} strokeWidth={activeTab === 'compare' && !viewingTarget ? 2.5 : 2} />
             <span className="text-[10px] font-medium mt-1">Compare</span>
           </button>
-          <button onClick={() => {setActiveTab('settings'); setViewingTarget(null);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
+          <button onClick={() => {setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
             <Settings size={24} strokeWidth={activeTab === 'settings' && !viewingTarget ? 2.5 : 2} />
             <span className="text-[10px] font-medium mt-1">Settings</span>
           </button>
@@ -365,7 +476,7 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
+const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, setIsPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
   const [searchTerm, setSearchTerm] = useState('');
   
   const [sortOption, setSortOption] = useState(() => localStorage.getItem('waTrackerSort') || 'default');
@@ -419,7 +530,14 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
   return (
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex justify-between items-start mb-4">
-        <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
+        <div>
+          <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
+          {/* Privacy Mode integrated below the title */}
+          <div onClick={() => setIsPrivacyMode(!isPrivacyMode)} className="flex items-center space-x-1 cursor-pointer mt-1 active:scale-95 transition-transform text-gray-500 dark:text-gray-400 w-max bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+              {isPrivacyMode ? <EyeOff size={12} className="text-blue-500" /> : <Eye size={12} />}
+              <span className="text-[10px] font-bold uppercase tracking-wider">{isPrivacyMode ? 'Privacy: ON' : 'Privacy Mode'}</span>
+          </div>
+        </div>
         <div className="flex flex-col items-end mr-12">
           <div className="flex space-x-2 mb-1">
             {botHealth && botHealth.battery !== null && (
@@ -612,12 +730,17 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
         <button onClick={onClose} className="flex items-center text-blue-600 dark:text-blue-400 font-medium mb-4 active:scale-95 transition-transform"><ArrowLeft size={20} className="mr-1" /> Back</button>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-gray-300 dark:border-gray-600'} bg-white dark:bg-gray-800 relative transition-all duration-500`}>
-              <span className={`text-2xl font-bold text-gray-500 dark:text-gray-300 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-gray-300 dark:border-gray-600'} bg-white dark:bg-gray-800 relative transition-all duration-500 overflow-hidden`}>
+              <img src={`https://api.dicebear.com/7.x/shapes/svg?seed=${target.number}`} alt="avatar" className={`w-full h-full object-cover ${isPrivacyMode ? 'privacy-blur' : ''}`} />
               {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
             </div>
             <div>
-              <h1 className={`text-2xl font-bold leading-tight ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h1>
+              <div className="flex items-center">
+                <h1 className={`text-2xl font-bold leading-tight ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h1>
+                <a href={`https://wa.me/${target.number}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-2 shrink-0 flex items-center justify-center bg-green-500 w-6 h-6 rounded-full hover:bg-green-600 transition-colors shadow-sm">
+                  <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.021-.967-.264-.099-.456-.149-.648.149-.192.297-.764.967-.936 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.648-1.56-.888-2.136-.233-.561-.47-.485-.648-.494-.171-.008-.368-.009-.566-.009-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.086 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                </a>
+              </div>
               <div className="flex items-center space-x-2 mt-1">
                 <p className="text-gray-600 dark:text-gray-400 font-mono text-sm">+{maskNumber(target.number)}</p>
                 {!isPrivacyMode && (
@@ -736,8 +859,8 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
     <div onClick={onClick} className="glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700">
       {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
       <div className="relative mr-4">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-gray-100 dark:bg-gray-800 relative transition-colors`}>
-          <span className={`text-lg font-bold text-gray-500 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name.charAt(0).toUpperCase()}</span>
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-gray-100 dark:bg-gray-800 relative transition-colors overflow-hidden`}>
+          <img src={`https://api.dicebear.com/7.x/shapes/svg?seed=${target.number}`} alt="avatar" className={`w-full h-full object-cover ${isPrivacyMode ? 'privacy-blur' : ''}`} />
           {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
         </div>
         <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}>
@@ -745,7 +868,13 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center"><h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h3>{target.isMuted && <BellOff size={12} className="text-gray-400" />}</div>
+        <div className="flex items-center">
+            <h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h3>
+            <a href={`https://wa.me/${target.number}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center justify-center bg-green-500 w-5 h-5 rounded-full hover:bg-green-600 transition-colors ml-2 mr-1 shadow-sm">
+                <svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.021-.967-.264-.099-.456-.149-.648.149-.192.297-.764.967-.936 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.648-1.56-.888-2.136-.233-.561-.47-.485-.648-.494-.171-.008-.368-.009-.566-.009-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.086 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            </a>
+            {target.isMuted && <BellOff size={12} className="text-gray-400" />}
+        </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>}</p>
         {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
       </div>
@@ -882,7 +1011,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     //{ id: 'light-colorful', name: 'Light Color', icon: <Palette size={18} />, color: 'bg-blue-50' },
@@ -890,14 +1019,6 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
     //{ id: 'dark-colorful', name: 'Dark Color', icon: <Palette size={18} />, color: 'bg-slate-900' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
   ];
-
-  // NEW: Restart Button Handler
-  const handleRestartBot = async () => {
-    if (window.confirm('Are you sure you want to restart the Termux backend bot?')) {
-      await mongoFetch('updateOne', 'system_config', { _id: 'remote_restart' }, {}, null, { $set: { pending: true } });
-      alert('Restart command sent! Termux PM2 will reboot the bot in ~5 seconds.');
-    }
-  };
 
   return (
     <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24">
@@ -959,13 +1080,29 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
           <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" placeholder="https://my-proxy.vercel.app/api/proxy" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" placeholder="••••••••••••••••••••••••••••••" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
           
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
-          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          
-          {/* Remote Restart Button */}
+          <div className="p-4 bg-purple-50 dark:bg-purple-900/10 border-t border-purple-100 dark:border-purple-900/30"><p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-1">2. Stealth & Device Tools</p></div>
+          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+            <div>
+               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Screen Wake Lock (☕)</label>
+               <span className="text-[10px] text-gray-500">Prevent screen from sleeping</span>
+            </div>
+            <button onClick={() => setIsWakeLockActive(!isWakeLockActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isWakeLockActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isWakeLockActive ? 'translate-x-5' : ''}`}></span>
+            </button>
+          </div>
+          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+            <div>
+               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Boss Key (Incognito)</label>
+               <span className="text-[10px] text-gray-500">Disguise tab when switching away</span>
+            </div>
+            <button onClick={() => setIsBossKeyActive(!isBossKeyActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isBossKeyActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isBossKeyActive ? 'translate-x-5' : ''}`}></span>
+            </button>
+          </div>
+
           <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
-            <button onClick={handleRestartBot} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
+            {/* Call the custom popup prop instead of basic confirm */}
+            <button onClick={onRequestRestart} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
               <Power size={18} />
               <span>Restart Backend Bot</span>
             </button>
