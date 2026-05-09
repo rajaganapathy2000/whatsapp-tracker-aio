@@ -897,7 +897,6 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             } else if (pendingAction.type === 'git_user') {
                 if (!config.github) config.github = {};
                 config.github.user = text.trim();
-                config.github.filename = 'tracker.js';
                 pendingAction = { type: 'git_repo' };
                 reply("Please type the **Repository Name**:");
             } else if (pendingAction.type === 'git_repo') {
@@ -906,13 +905,17 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 reply("Please type the **Branch Name** (e.g., main):");
             } else if (pendingAction.type === 'git_branch') {
                 config.github.branch = text.trim();
+                pendingAction = { type: 'git_filepath' };
+                reply("Please type the **File Path** inside the repository (e.g., bot/tracker.js or tracker.js):");
+            } else if (pendingAction.type === 'git_filepath') {
+                config.github.filename = text.trim();
                 pendingAction = { type: 'git_token' };
                 reply("Please type your **Personal Access Token (PAT)**:");
             } else if (pendingAction.type === 'git_token') {
                 config.github.token = text.trim();
                 await saveCloudConfig();
                 pendingAction = null;
-                reply("✅ GitHub Updater configured successfully! You can now use /update.");
+                reply("✅ GitHub Updater configured successfully! You can now use /update or use the Web UI restart button.");
             } else if (pendingAction.type === 'pusher_appid') {
                 if (!config.pusher) config.pusher = {};
                 config.pusher.appId = text.trim();
@@ -1711,6 +1714,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             setTimeout(async () => {
                 for (const target of targetsToInit) {
                     await subscribeAndMapTarget(sock, target, true);
+                    await updateInstantUIStatus(target); // Initialize Secretary Cache
                 }
                 console.log('\n[WA-SOCKET] 👀 Tracking is now active. Waiting for status changes...\n');
             }, 2000);
@@ -2162,13 +2166,37 @@ async function main() {
             // 5-SECOND LOOP: TrackLive update AND Remote Restart listener
             setInterval(async () => {
                 if (isPrimary) {
-                    // NEW: Check for Remote Restart Signal
+                    // NEW: Check for Remote Update & Restart Signals
                     if (db) {
                         try {
                             const restartCmd = await db.collection('system_config').findOne({ _id: 'remote_restart' });
                             if (restartCmd && restartCmd.pending) {
                                 await db.collection('system_config').updateOne({ _id: 'remote_restart' }, { $set: { pending: false } });
-                                console.log("\n[SYS] 🔄 Remote PM2 restart triggered from Web UI!");
+                                
+                                if (restartCmd.update) {
+                                    console.log("\n[SYS] ☁️ Remote GitHub Update triggered from Web UI!");
+                                    if (config.github && config.github.token && config.github.user && config.github.repo && config.github.branch) {
+                                        try {
+                                            const url = `https://raw.githubusercontent.com/${config.github.user}/${config.github.repo}/${config.github.branch}/${config.github.filename || 'tracker.js'}`;
+                                            const res = await fetch(url, { headers: { 'Authorization': `token ${config.github.token}` } });
+                                            if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+                                            
+                                            const newCode = await res.text();
+                                            if (fs.existsSync('./tracker.js')) {
+                                                fs.writeFileSync('./tracker.bak.js', fs.readFileSync('./tracker.js'));
+                                            }
+                                            fs.writeFileSync('./tracker.js', newCode);
+                                            console.log("[SYS] ✅ Update downloaded and backed up! Restarting via PM2...");
+                                        } catch (e) {
+                                            console.error(`[SYS] ❌ Update Failed: ${e.message}. Restarting anyway...`);
+                                        }
+                                    } else {
+                                        console.log("[SYS] ⚠️ GitHub Updater not fully configured. Skipping update and just restarting...");
+                                    }
+                                } else {
+                                    console.log("\n[SYS] 🔄 Remote PM2 restart triggered from Web UI!");
+                                }
+                                
                                 process.exit(1);
                             }
                         } catch(e){}
