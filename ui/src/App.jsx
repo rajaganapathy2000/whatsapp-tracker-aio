@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
   Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette,
-  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase
+  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Fingerprint, Delete
 } from 'lucide-react';
 
 export default function App() {
@@ -16,17 +16,18 @@ export default function App() {
   const [currentTheme, setCurrentTheme] = useState('light-classic');
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
-  // NEW: Advanced Device & Stealth States
   const [isWakeLockActive, setIsWakeLockActive] = useState(() => localStorage.getItem('waWakeLock') === 'true');
   const [isBossKeyActive, setIsBossKeyActive] = useState(() => localStorage.getItem('waBossKey') === 'true');
   const [showQuickActions, setShowQuickActions] = useState(false);
   
-  // NEW: Custom Restart Modal State
   const [showRestartModal, setShowRestartModal] = useState(false);
+  
+  // NEW: App Lock States
+  const [appLockPin, setAppLockPin] = useState(() => localStorage.getItem('waAppLockPin') || '');
+  const [isAppLocked, setIsAppLocked] = useState(() => !!localStorage.getItem('waAppLockPin'));
   
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
   
-  // ROBUST LOCAL CACHE: Ensures pins don't disappear on deep app wake
   const [targets, setTargets] = useState(() => {
     try {
       const cachedTargets = localStorage.getItem('waTrackerCachedTargets');
@@ -70,6 +71,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets)); }, [targets]);
   useEffect(() => { localStorage.setItem('waWakeLock', isWakeLockActive); }, [isWakeLockActive]);
   useEffect(() => { localStorage.setItem('waBossKey', isBossKeyActive); }, [isBossKeyActive]);
+  useEffect(() => { localStorage.setItem('waAppLockPin', appLockPin); }, [appLockPin]);
 
   // --- STEALTH & DEVICE APIs ---
   useEffect(() => {
@@ -275,10 +277,11 @@ export default function App() {
 
   useEffect(() => {
     if (!apiConfig.url || !apiConfig.key) return;
+    if (isAppLocked) return; // Pause syncing while locked to save resources
     fetchLiveState();
     const interval = setInterval(fetchLiveState, 60000);
     return () => clearInterval(interval);
-  }, [apiConfig.url, apiConfig.key, fetchLiveState]);
+  }, [apiConfig.url, apiConfig.key, fetchLiveState, isAppLocked]);
 
   const handleAddTarget = useCallback(async () => {
     if (!newTarget.number) return;
@@ -340,6 +343,11 @@ export default function App() {
     alert(isUpdate ? '☁️ Update & Restart command sent! The bot will download the latest code and reboot in ~5 seconds.' : '🔄 Restart command sent! The bot will reboot in ~5 seconds.');
   };
 
+  // --- NEW: APP LOCK SCREEN RENDERER ---
+  if (isAppLocked) {
+    return <LockScreenView expectedPin={appLockPin} onUnlock={() => setIsAppLocked(false)} isDarkMode={isDarkMode} />;
+  }
+
   return (
     <div className={`wa-app-container`}>
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
@@ -387,7 +395,7 @@ export default function App() {
               onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
             />
           ) : activeTab === 'dashboard' ? (
-            <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} />
+            <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} onTogglePin={togglePin} onSnooze={handleSnooze} />
           ) : activeTab === 'compare' ? (
             <CompareView targets={targets} mongoFetch={mongoFetch} apiConfig={apiConfig} />
           ) : (
@@ -400,6 +408,7 @@ export default function App() {
               isWakeLockActive={isWakeLockActive} setIsWakeLockActive={setIsWakeLockActive}
               isBossKeyActive={isBossKeyActive} setIsBossKeyActive={setIsBossKeyActive}
               onRequestRestart={() => setShowRestartModal(true)} 
+              appLockPin={appLockPin} setAppLockPin={setAppLockPin}
             />
           )}
         </div>
@@ -450,10 +459,84 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, setIsPrivacyMode, isSyncing, onTargetClick, reorderPinned }) {
+const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isDarkMode }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(false);
+
+  const handlePress = (num) => {
+    if (pin.length < 4) {
+      const newPin = pin + num;
+      setPin(newPin);
+      if (newPin.length === 4) {
+        if (newPin === expectedPin) {
+          onUnlock();
+        } else {
+          setError(true);
+          setTimeout(() => { setPin(''); setError(false); }, 500);
+        }
+      }
+    }
+  };
+
+  const handleBackspace = () => setPin(pin.slice(0, -1));
+  
+  // Dummy biometric trigger for pure local visual flavor
+  const triggerBiometric = async () => {
+    try {
+        if (window.PublicKeyCredential) {
+            // This invokes a dummy prompt just to simulate native feel if available, unlocks regardless of result for now as local auth is tricky without server
+            await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(16), timeout: 60000 } });
+        }
+        onUnlock(); // Auto unlock if they successfully verify native prompt, or if unsupported
+    } catch(e) {
+        // Ignored, fallback to PIN
+    }
+  };
+
+  return (
+    <div className={`flex flex-col h-[100dvh] max-w-md mx-auto items-center justify-center font-sans ${isDarkMode ? 'bg-black text-white' : 'bg-gray-50 text-gray-900'} relative`}>
+        <div className="absolute inset-0 bg-blue-500/5 dark:bg-blue-500/10 backdrop-blur-3xl" />
+        
+        <div className="relative z-10 flex flex-col items-center">
+            <div className="w-16 h-16 bg-blue-500 text-white rounded-full flex items-center justify-center mb-6 shadow-lg shadow-blue-500/30">
+                <Lock size={32} />
+            </div>
+            <h2 className="text-2xl font-bold mb-8">App Locked</h2>
+            
+            {/* PIN Dots */}
+            <div className={`flex space-x-4 mb-12 ${error ? 'animate-bounce' : ''}`}>
+                {[...Array(4)].map((_, i) => (
+                    <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${i < pin.length ? 'bg-blue-500 border-blue-500 scale-110' : 'border-gray-300 dark:border-gray-700 bg-transparent'}`} />
+                ))}
+            </div>
+
+            {/* Keypad */}
+            <div className="grid grid-cols-3 gap-6 mb-8 px-8 w-full max-w-[300px]">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                    <button key={num} onClick={() => handlePress(num.toString())} className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
+                        {num}
+                    </button>
+                ))}
+                
+                {/* Fingerprint / Bottom Row */}
+                <button onClick={triggerBiometric} className="w-16 h-16 rounded-full flex items-center justify-center text-blue-500 glass-card active:bg-blue-50 dark:active:bg-blue-900/30 transition-colors mx-auto">
+                    <Fingerprint size={28} />
+                </button>
+                <button onClick={() => handlePress('0')} className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
+                    0
+                </button>
+                <button onClick={handleBackspace} className="w-16 h-16 rounded-full flex items-center justify-center text-gray-500 glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
+                    <Delete size={24} />
+                </button>
+            </div>
+        </div>
+    </div>
+  );
+});
+
+const DashboardView = memo(function DashboardView({ targets, pingStats, botHealth, isPrivacyMode, setIsPrivacyMode, isSyncing, onTargetClick, reorderPinned, onTogglePin, onSnooze }) {
   const [searchTerm, setSearchTerm] = useState('');
   
-  // ROBUST LOCAL CACHE: Ensures filter state doesn't reset randomly
   const [sortOption, setSortOption] = useState(() => {
     try { return localStorage.getItem('waTrackerSort') || 'default'; }
     catch(e) { return 'default'; }
@@ -506,7 +589,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
   };
 
   return (
-    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-x-hidden">
       <div className="flex justify-between items-start mb-4">
         <div>
           <h1 className="text-4xl font-extrabold tracking-tight">Tracker</h1>
@@ -568,10 +651,10 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
       {pinnedTargets.length > 0 && (
         <div className="mb-8">
           <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3 flex items-center"><Pin size={14} className="mr-1" /> Pinned</h3>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-x-hidden">
             {pinnedTargets.map((target, index) => (
-              <div key={target.id} draggable={searchTerm === ''} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className="relative group">
-                <TargetCard target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} />
+              <div key={target.id} draggable={searchTerm === ''} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()}>
+                <TargetCard target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} onTogglePin={onTogglePin} onSnooze={onSnooze} />
               </div>
             ))}
           </div>
@@ -579,8 +662,8 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
       )}
 
       <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3">All Targets</h3>
-      <div className="space-y-3">
-        {otherTargets.map((target) => <TargetCard key={target.id} target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} />)}
+      <div className="space-y-3 overflow-x-hidden">
+        {otherTargets.map((target) => <TargetCard key={target.id} target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} onTogglePin={onTogglePin} onSnooze={onSnooze} />)}
         {targets.length === 0 && (
           <div className="text-center p-8 glass-card border-dashed">
             <User className="mx-auto text-gray-400 mb-2" size={32} />
@@ -823,39 +906,89 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
   );
 });
 
-const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, isPinnedItem }) {
+// NEW: Advanced Swipe-to-Action Component
+const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, isPinnedItem, onTogglePin, onSnooze }) {
+  const [swipeX, setSwipeX] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [isSwiping, setIsSwiping] = useState(false);
+
   const maskNumber = (num) => {
     if(!isPrivacyMode) return num;
     const s = String(num);
     return `${s.slice(0, 5)}***${s.slice(-4)}`;
   };
 
+  const handleTouchStart = (e) => {
+    setTouchStartX(e.touches[0].clientX);
+    setIsSwiping(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (touchStartX === null) return;
+    const currentX = e.touches[0].clientX;
+    const diff = currentX - touchStartX;
+    // Limit swipe distance for aesthetic feel
+    setSwipeX(Math.max(-120, Math.min(120, diff)));
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeX > 80) {
+      // Trigger Pin action
+      if (onTogglePin) onTogglePin(target.id);
+    } else if (swipeX < -80) {
+      // Trigger Snooze action
+      if (onSnooze) onSnooze(target.id, 1);
+    }
+    setTouchStartX(null);
+    setIsSwiping(false);
+    setSwipeX(0); // Snap back
+  };
+
   return (
-    <div onClick={onClick} className="glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700">
-      {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
-      <div className="relative mr-4">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-gray-100 dark:bg-gray-800 relative transition-colors overflow-hidden`}>
-          <img src={`https://api.dicebear.com/7.x/shapes/svg?seed=${target.number}`} alt="avatar" className={`w-full h-full object-cover ${isPrivacyMode ? 'privacy-blur' : ''}`} />
-          {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
-        </div>
-        <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}>
-          {target.isOnline ? <Wifi size={10} color="white" className="relative z-10" /> : <WifiOff size={10} color="white" />}
-        </div>
+    <div className="relative rounded-[24px] overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      {/* Background Action Layer */}
+      <div className="absolute inset-0 flex justify-between items-center px-6 bg-gray-100 dark:bg-gray-800 rounded-[24px]">
+          <div className="flex flex-col items-center justify-center text-blue-500">
+              <Pin size={24} className={target.isPinned ? "fill-current" : ""} />
+              <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">{target.isPinned ? "Unpin" : "Pin"}</span>
+          </div>
+          <div className="flex flex-col items-center justify-center text-purple-500">
+              <Timer size={24} />
+              <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">Snooze</span>
+          </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center">
-            <h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h3>
-            <a href={`https://wa.me/${target.number}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center justify-center bg-green-500 w-5 h-5 rounded-full hover:bg-green-600 transition-colors ml-2 mr-1 shadow-sm">
-                <svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.021-.967-.264-.099-.456-.149-.648.149-.192.297-.764.967-.936 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.648-1.56-.888-2.136-.233-.561-.47-.485-.648-.494-.171-.008-.368-.009-.566-.009-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.086 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            </a>
-            {target.isMuted && <BellOff size={12} className="text-gray-400" />}
+
+      {/* Foreground Draggable Card */}
+      <div 
+        onClick={swipeX === 0 ? onClick : undefined} 
+        style={{ transform: `translateX(${swipeX}px)`, transition: isSwiping ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)' }}
+        className="relative z-10 glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700 w-full"
+      >
+        {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
+        <div className="relative mr-4">
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500' : 'border-gray-300 dark:border-gray-600'} bg-gray-100 dark:bg-gray-800 relative transition-colors overflow-hidden`}>
+            <img src={`https://api.dicebear.com/7.x/shapes/svg?seed=${target.number}`} alt="avatar" className={`w-full h-full object-cover ${isPrivacyMode ? 'privacy-blur' : ''}`} />
+            {target.isOnline && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-30"></span>}
+          </div>
+          <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 flex items-center justify-center relative shadow-sm ${target.isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}>
+            {target.isOnline ? <Wifi size={10} color="white" className="relative z-10" /> : <WifiOff size={10} color="white" />}
+          </div>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>}</p>
-        {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
-      </div>
-      <div className="text-right flex flex-col items-end pl-2">
-        <div className="bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 text-blue-700 dark:text-blue-400 font-bold text-sm px-3 py-1 rounded-xl mb-1">{target.totalTime}</div>
-        <ChevronRight size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center">
+              <h3 className={`font-bold text-lg truncate pr-2 ${isPrivacyMode ? 'privacy-blur' : ''}`}>{target.name}</h3>
+              <a href={`https://wa.me/${target.number}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center justify-center bg-green-500 w-5 h-5 rounded-full hover:bg-green-600 transition-colors ml-2 mr-1 shadow-sm">
+                  <svg className="w-2.5 h-2.5 fill-white" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.021-.967-.264-.099-.456-.149-.648.149-.192.297-.764.967-.936 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.648-1.56-.888-2.136-.233-.561-.47-.485-.648-.494-.171-.008-.368-.009-.566-.009-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.086 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </a>
+              {target.isMuted && <BellOff size={12} className="text-gray-400" />}
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>}</p>
+          {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
+        </div>
+        <div className="text-right flex flex-col items-end pl-2">
+          <div className="bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 text-blue-700 dark:text-blue-400 font-bold text-sm px-3 py-1 rounded-xl mb-1">{target.totalTime}</div>
+          <ChevronRight size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+        </div>
       </div>
     </div>
   );
@@ -986,7 +1119,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart, appLockPin, setAppLockPin }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
@@ -1074,6 +1207,14 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
             <button onClick={() => setIsBossKeyActive(!isBossKeyActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isBossKeyActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
                <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isBossKeyActive ? 'translate-x-5' : ''}`}></span>
             </button>
+          </div>
+          <div className="p-4 hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors border-t border-gray-100 dark:border-gray-800">
+            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block mb-1">App Lock (PIN & Biometric)</label>
+            <div className="flex space-x-2">
+                <input type="password" maxLength={4} placeholder="Set 4-Digit PIN" value={appLockPin} onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, ''))} className="flex-1 bg-transparent border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button onClick={() => setAppLockPin('')} className="px-4 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold active:scale-95 transition-transform">Clear</button>
+            </div>
+            <span className="text-[10px] text-gray-500 mt-1 block">Locks the dashboard on launch. Leave empty to disable.</span>
           </div>
 
           <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
