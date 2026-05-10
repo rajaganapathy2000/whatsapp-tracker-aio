@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
   Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette,
-  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Fingerprint, Delete
+  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete
 } from 'lucide-react';
 
 export default function App() {
@@ -280,11 +280,14 @@ export default function App() {
 
   useEffect(() => {
     if (!apiConfig.url || !apiConfig.key) return;
-    if (isAppLocked) return; // Pause syncing while locked to save resources
+    
+    // FIX: Removed the "if (isAppLocked) return;" restriction!
+    // The app will now securely fetch live stats in the background while you are looking at the Lock Screen.
     fetchLiveState();
+    
     const interval = setInterval(fetchLiveState, 60000);
     return () => clearInterval(interval);
-  }, [apiConfig.url, apiConfig.key, fetchLiveState, isAppLocked]);
+  }, [apiConfig.url, apiConfig.key, fetchLiveState]);
 
   const handleAddTarget = useCallback(async () => {
     if (!newTarget.number) return;
@@ -346,9 +349,9 @@ export default function App() {
     alert(isUpdate ? '☁️ Update & Restart command sent! The bot will download the latest code and reboot in ~5 seconds.' : '🔄 Restart command sent! The bot will reboot in ~5 seconds.');
   };
 
-  // --- NEW: APP LOCK SCREEN RENDERER ---
+  // --- APP LOCK SCREEN RENDERER ---
   if (isAppLocked) {
-    return <LockScreenView expectedPin={appLockPin} onUnlock={() => setIsAppLocked(false)} isDarkMode={isDarkMode} />;
+    return <LockScreenView expectedPin={appLockPin} onUnlock={() => setIsAppLocked(false)} />;
   }
 
   return (
@@ -462,7 +465,9 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isDarkMode }) {
+// FIX: Completely refactored LockScreen to use strictly true Tailwind dark mode classes (dark:bg-black)
+// FIX: Removed biometric dummy-trigger to prevent the Passkey WebAuthn popup confusion
+const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
@@ -483,11 +488,10 @@ const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isD
 
   const handleBackspace = () => setPin(pin.slice(0, -1));
 
-  // True AMOLED Black styling for dark mode, crisp clean white for light mode
   return (
-    <div className={`flex flex-col h-[100dvh] w-full max-w-md mx-auto items-center justify-center font-sans relative z-[999] transition-colors duration-300 ${isDarkMode ? 'bg-black text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto items-center justify-center font-sans relative z-[999] transition-colors duration-300 bg-gray-50 dark:bg-black text-gray-900 dark:text-white">
         <div className="relative z-10 flex flex-col items-center w-full px-8">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-6 transition-colors ${isDarkMode ? 'bg-gray-900 text-blue-500' : 'bg-blue-100 text-blue-600'}`}>
+            <div className="w-14 h-14 rounded-full flex items-center justify-center mb-6 transition-colors bg-blue-100 dark:bg-gray-900 text-blue-600 dark:text-blue-500">
                 <Lock size={28} strokeWidth={2.5} />
             </div>
             <h2 className="text-2xl font-semibold mb-8 tracking-wide">Enter App PIN</h2>
@@ -495,24 +499,24 @@ const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isD
             {/* PIN Dots */}
             <div className={`flex space-x-6 mb-16 ${error ? 'animate-bounce' : ''}`}>
                 {[...Array(4)].map((_, i) => (
-                    <div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] transition-all duration-200 ${i < pin.length ? (isDarkMode ? 'bg-white border-white' : 'bg-gray-900 border-gray-900') : (isDarkMode ? 'border-gray-600 bg-transparent' : 'border-gray-300 bg-transparent')}`} />
+                    <div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] transition-all duration-200 ${i < pin.length ? 'bg-gray-900 border-gray-900 dark:bg-white dark:border-white' : 'bg-transparent border-gray-300 dark:border-gray-600'}`} />
                 ))}
             </div>
 
             {/* Keypad */}
             <div className="grid grid-cols-3 gap-x-8 gap-y-6 mb-8 w-full max-w-[280px]">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-                    <button key={num} onClick={() => handlePress(num.toString())} className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 ${isDarkMode ? 'bg-gray-900 active:bg-gray-800 text-white' : 'bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100'}`}>
+                    <button key={num} onClick={() => handlePress(num.toString())} className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100 dark:bg-gray-900 dark:active:bg-gray-800 dark:text-white dark:border-gray-800 dark:shadow-none">
                         {num}
                     </button>
                 ))}
                 
                 {/* Bottom Row: Empty space, Zero, Delete */}
                 <div className="w-20 h-20"></div>
-                <button onClick={() => handlePress('0')} className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 ${isDarkMode ? 'bg-gray-900 active:bg-gray-800 text-white' : 'bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100'}`}>
+                <button onClick={() => handlePress('0')} className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100 dark:bg-gray-900 dark:active:bg-gray-800 dark:text-white dark:border-gray-800 dark:shadow-none">
                     0
                 </button>
-                <button onClick={handleBackspace} className={`w-20 h-20 rounded-full flex items-center justify-center transition-colors mx-auto active:scale-95 ${isDarkMode ? 'text-gray-400 active:bg-gray-900' : 'text-gray-500 active:bg-gray-200'}`}>
+                <button onClick={handleBackspace} className="w-20 h-20 rounded-full flex items-center justify-center transition-colors mx-auto active:scale-95 text-gray-500 active:bg-gray-200 dark:text-gray-400 dark:active:bg-gray-900">
                     <Delete size={28} strokeWidth={2} />
                 </button>
             </div>
@@ -1193,7 +1197,7 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
             </button>
           </div>
           <div className="p-4 hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors border-t border-gray-100 dark:border-gray-800">
-            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block mb-1">App Lock (PIN & Biometric)</label>
+            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block mb-1">App Lock PIN</label>
             <div className="flex space-x-2">
                 <input type="password" maxLength={4} placeholder="Set 4-Digit PIN" value={appLockPin} onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, ''))} className="flex-1 bg-transparent border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <button onClick={() => setAppLockPin('')} className="px-4 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold active:scale-95 transition-transform">Clear</button>
