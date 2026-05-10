@@ -16,10 +16,12 @@ export default function App() {
   const [currentTheme, setCurrentTheme] = useState('light-classic');
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
+  // NEW: Advanced Device & Stealth States
   const [isWakeLockActive, setIsWakeLockActive] = useState(() => localStorage.getItem('waWakeLock') === 'true');
   const [isBossKeyActive, setIsBossKeyActive] = useState(() => localStorage.getItem('waBossKey') === 'true');
   const [showQuickActions, setShowQuickActions] = useState(false);
   
+  // NEW: Custom Restart Modal State
   const [showRestartModal, setShowRestartModal] = useState(false);
   
   // NEW: App Lock States
@@ -28,6 +30,7 @@ export default function App() {
   
   const [apiConfig, setApiConfig] = useState({ url: '', key: '', pusherKey: '', pusherCluster: '' });
   
+  // ROBUST LOCAL CACHE: Ensures pins don't disappear on deep app wake
   const [targets, setTargets] = useState(() => {
     try {
       const cachedTargets = localStorage.getItem('waTrackerCachedTargets');
@@ -479,54 +482,38 @@ const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isD
   };
 
   const handleBackspace = () => setPin(pin.slice(0, -1));
-  
-  // Dummy biometric trigger for pure local visual flavor
-  const triggerBiometric = async () => {
-    try {
-        if (window.PublicKeyCredential) {
-            // This invokes a dummy prompt just to simulate native feel if available, unlocks regardless of result for now as local auth is tricky without server
-            await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(16), timeout: 60000 } });
-        }
-        onUnlock(); // Auto unlock if they successfully verify native prompt, or if unsupported
-    } catch(e) {
-        // Ignored, fallback to PIN
-    }
-  };
 
+  // True AMOLED Black styling for dark mode, crisp clean white for light mode
   return (
-    <div className={`flex flex-col h-[100dvh] max-w-md mx-auto items-center justify-center font-sans ${isDarkMode ? 'bg-black text-white' : 'bg-gray-50 text-gray-900'} relative`}>
-        <div className="absolute inset-0 bg-blue-500/5 dark:bg-blue-500/10 backdrop-blur-3xl" />
-        
-        <div className="relative z-10 flex flex-col items-center">
-            <div className="w-16 h-16 bg-blue-500 text-white rounded-full flex items-center justify-center mb-6 shadow-lg shadow-blue-500/30">
-                <Lock size={32} />
+    <div className={`flex flex-col h-[100dvh] w-full max-w-md mx-auto items-center justify-center font-sans relative z-[999] transition-colors duration-300 ${isDarkMode ? 'bg-black text-white' : 'bg-gray-50 text-gray-900'}`}>
+        <div className="relative z-10 flex flex-col items-center w-full px-8">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-6 transition-colors ${isDarkMode ? 'bg-gray-900 text-blue-500' : 'bg-blue-100 text-blue-600'}`}>
+                <Lock size={28} strokeWidth={2.5} />
             </div>
-            <h2 className="text-2xl font-bold mb-8">App Locked</h2>
+            <h2 className="text-2xl font-semibold mb-8 tracking-wide">Enter App PIN</h2>
             
             {/* PIN Dots */}
-            <div className={`flex space-x-4 mb-12 ${error ? 'animate-bounce' : ''}`}>
+            <div className={`flex space-x-6 mb-16 ${error ? 'animate-bounce' : ''}`}>
                 {[...Array(4)].map((_, i) => (
-                    <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${i < pin.length ? 'bg-blue-500 border-blue-500 scale-110' : 'border-gray-300 dark:border-gray-700 bg-transparent'}`} />
+                    <div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] transition-all duration-200 ${i < pin.length ? (isDarkMode ? 'bg-white border-white' : 'bg-gray-900 border-gray-900') : (isDarkMode ? 'border-gray-600 bg-transparent' : 'border-gray-300 bg-transparent')}`} />
                 ))}
             </div>
 
             {/* Keypad */}
-            <div className="grid grid-cols-3 gap-6 mb-8 px-8 w-full max-w-[300px]">
+            <div className="grid grid-cols-3 gap-x-8 gap-y-6 mb-8 w-full max-w-[280px]">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-                    <button key={num} onClick={() => handlePress(num.toString())} className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
+                    <button key={num} onClick={() => handlePress(num.toString())} className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 ${isDarkMode ? 'bg-gray-900 active:bg-gray-800 text-white' : 'bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100'}`}>
                         {num}
                     </button>
                 ))}
                 
-                {/* Fingerprint / Bottom Row */}
-                <button onClick={triggerBiometric} className="w-16 h-16 rounded-full flex items-center justify-center text-blue-500 glass-card active:bg-blue-50 dark:active:bg-blue-900/30 transition-colors mx-auto">
-                    <Fingerprint size={28} />
-                </button>
-                <button onClick={() => handlePress('0')} className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-semibold glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
+                {/* Bottom Row: Empty space, Zero, Delete */}
+                <div className="w-20 h-20"></div>
+                <button onClick={() => handlePress('0')} className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-light transition-colors mx-auto active:scale-95 ${isDarkMode ? 'bg-gray-900 active:bg-gray-800 text-white' : 'bg-white shadow-sm active:bg-gray-100 text-gray-900 border border-gray-100'}`}>
                     0
                 </button>
-                <button onClick={handleBackspace} className="w-16 h-16 rounded-full flex items-center justify-center text-gray-500 glass-card active:bg-gray-200 dark:active:bg-gray-800 transition-colors mx-auto">
-                    <Delete size={24} />
+                <button onClick={handleBackspace} className={`w-20 h-20 rounded-full flex items-center justify-center transition-colors mx-auto active:scale-95 ${isDarkMode ? 'text-gray-400 active:bg-gray-900' : 'text-gray-500 active:bg-gray-200'}`}>
+                    <Delete size={28} strokeWidth={2} />
                 </button>
             </div>
         </div>
@@ -803,7 +790,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
               <div className="flex items-center space-x-2 mt-1">
                 <p className="text-gray-600 dark:text-gray-400 font-mono text-sm">+{maskNumber(target.number)}</p>
                 {!isPrivacyMode && (
-                  <button onClick={copyToClipboard} className="text-gray-400 hover:text-blue-500 transition-colors active:scale-90">
+                  <button onClick={copyToClipboard} className="text-gray-400 hover:text-blue-50 transition-colors active:scale-90">
                     {isCopied ? <CheckCircle2 size={14} className="text-green-500" /> : <Copy size={14} />}
                   </button>
                 )}
@@ -906,7 +893,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
   );
 });
 
-// NEW: Advanced Swipe-to-Action Component
+// UPDATED: Advanced Swipe-to-Action Component (Pin Only)
 const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, isPinnedItem, onTogglePin, onSnooze }) {
   const [swipeX, setSwipeX] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
@@ -932,12 +919,9 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
   };
 
   const handleTouchEnd = () => {
-    if (swipeX > 80) {
-      // Trigger Pin action
+    if (swipeX > 80 || swipeX < -80) {
+      // Trigger Pin action for both directions to keep it simple and foolproof
       if (onTogglePin) onTogglePin(target.id);
-    } else if (swipeX < -80) {
-      // Trigger Snooze action
-      if (onSnooze) onSnooze(target.id, 1);
     }
     setTouchStartX(null);
     setIsSwiping(false);
@@ -946,15 +930,15 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
 
   return (
     <div className="relative rounded-[24px] overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      {/* Background Action Layer */}
-      <div className="absolute inset-0 flex justify-between items-center px-6 bg-gray-100 dark:bg-gray-800 rounded-[24px]">
-          <div className="flex flex-col items-center justify-center text-blue-500">
+      {/* Background Action Layer (Pin Only) */}
+      <div className="absolute inset-0 flex justify-between items-center px-6 bg-blue-100 dark:bg-blue-900/30 rounded-[24px]">
+          <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
               <Pin size={24} className={target.isPinned ? "fill-current" : ""} />
               <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">{target.isPinned ? "Unpin" : "Pin"}</span>
           </div>
-          <div className="flex flex-col items-center justify-center text-purple-500">
-              <Timer size={24} />
-              <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">Snooze</span>
+          <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
+              <Pin size={24} className={target.isPinned ? "fill-current" : ""} />
+              <span className="text-[10px] font-bold uppercase mt-1 tracking-wider">{target.isPinned ? "Unpin" : "Pin"}</span>
           </div>
       </div>
 
