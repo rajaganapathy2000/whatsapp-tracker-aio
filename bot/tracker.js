@@ -2151,14 +2151,31 @@ async function main() {
                 }
             }, 15000);
             
-            // 5-MINUTE PRESENCE HEARTBEAT (Fixes the TCP Zombie State)
+            // 5-MINUTE PRESENCE HEARTBEAT WITH 10-SECOND WATCHDOG (Fixes the TCP Zombie State)
             setInterval(async () => {
                 if (isPrimary && globalSock && config && config.targets) {
                     for (const target of config.targets) {
                         try {
-                            await globalSock.presenceSubscribe(`${target}@s.whatsapp.net`);
+                            const jid = `${target}@s.whatsapp.net`;
+                            
+                            // The 10-Second Watchdog Bomb
+                            const timeoutBomb = new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('WATCHDOG_TIMEOUT')), 10000)
+                            );
+
+                            // Race the Ping against the 10-Second Bomb
+                            await Promise.race([
+                                globalSock.presenceSubscribe(jid),
+                                timeoutBomb
+                            ]);
+
                             await new Promise(r => setTimeout(r, 500)); 
-                        } catch (e) {}
+                        } catch (e) {
+                            if (e.message === 'WATCHDOG_TIMEOUT') {
+                                console.error(`\n[SYS] 🚨 WATCHDOG TRIGGERED: WhatsApp server did not reply in 10 seconds. Connection is dead. Forcing PM2 reboot...`);
+                                process.exit(1);
+                            }
+                        }
                     }
                 }
             }, 5 * 60 * 1000);
