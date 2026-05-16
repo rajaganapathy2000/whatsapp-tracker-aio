@@ -9,6 +9,7 @@ const { MongoClient } = require('mongodb'); // Added MongoDB support
 const dns = require('dns'); // Added DNS support to bypass Termux SRV issues
 const crypto = require('crypto'); // Added for Unique Instance ID
 const Pusher = require('pusher'); // Added Pusher for Real-Time WebSockets
+const os = require('os'); // NEW: Added native Node.js OS module for hardware diagnostics
 
 dns.setServers(['8.8.8.8', '8.8.4.4']); // Forces Node.js to bypass Termux DNS issues
 
@@ -2027,6 +2028,44 @@ async function getBatteryStatus() {
 }
 // ===============================================================
 
+// NEW: ADVANCED SYSTEM DIAGNOSTICS (RAM, STORAGE, NETWORK)
+async function getAdvancedStats() {
+    return new Promise((resolve) => {
+        let ramStr = 'N/A';
+        let networkType = 'Unknown';
+        let botUptime = 'N/A';
+        let storageStr = 'Unknown';
+        
+        try {
+            const ramTotal = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
+            const ramFree = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
+            ramStr = `${ramFree}GB / ${ramTotal}GB`;
+
+            const nets = os.networkInterfaces();
+            if (nets['wlan0']) networkType = 'WiFi';
+            else if (nets['rmnet_data0'] || nets['rmnet0'] || Object.keys(nets).some(k => k.includes('rmnet'))) networkType = 'Mobile Data (4G/5G)';
+
+            botUptime = formatUptime(process.uptime() * 1000);
+        } catch(e) {}
+
+        // Fetch Android/Linux specific storage using df -h
+        exec('df -h /data', (err, stdout) => {
+            if (!err && stdout) {
+                try {
+                    const lines = stdout.split('\n');
+                    if (lines.length > 1) {
+                        const parts = lines[1].trim().split(/\s+/);
+                        if (parts.length >= 4) {
+                            storageStr = `${parts[3]} Free`;
+                        }
+                    }
+                } catch(e){}
+            }
+            resolve({ ram: ramStr, network: networkType, uptime: botUptime, storage: storageStr });
+        });
+    });
+}
+
 async function main() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const question = (q) => new Promise(res => rl.question(q, res));
@@ -2183,7 +2222,7 @@ async function main() {
             // 5-SECOND LOOP: TrackLive update AND Remote Restart listener
             setInterval(async () => {
                 if (isPrimary) {
-                    // NEW: Check for Remote Update & Restart Signals
+                    // Check for Remote Update & Restart Signals
                     if (db) {
                         try {
                             const restartCmd = await db.collection('system_config').findOne({ _id: 'remote_restart' });
@@ -2233,20 +2272,30 @@ async function main() {
                 }
             }, 5 * 1000);
 
-            // 60-SECOND BOT HEALTH MONITOR (BATTERY)
+            // 60-SECOND BOT HEALTH MONITOR (BATTERY & SYSTEM CONFIG)
             setInterval(async () => {
                 if (isPrimary && db) {
                     try {
                         const health = await getBatteryStatus();
+                        const advStats = await getAdvancedStats(); // Fetch RAM, Storage, Uptime, Network
+                        
                         if (health.battery !== null) {
                             await db.collection('system_config').updateOne(
                                 { _id: 'bot_health' },
-                                { $set: { battery: health.battery, isCharging: health.isCharging, lastUpdated: Date.now() } },
+                                { $set: { 
+                                    battery: health.battery, 
+                                    isCharging: health.isCharging, 
+                                    ram: advStats.ram,
+                                    storage: advStats.storage,
+                                    network: advStats.network,
+                                    botUptime: advStats.uptime,
+                                    lastUpdated: Date.now() 
+                                } },
                                 { upsert: true }
                             );
                         }
                         
-                        // NEW: Secretary Status Tick (keeps active timers updating every minute)
+                        // Secretary Status Tick (keeps active timers updating every minute)
                         if (config && config.targets) {
                              for (const target of config.targets) {
                                   if (activeSessions[target]?.isOnline) {
@@ -2257,6 +2306,14 @@ async function main() {
                     } catch (e) { }
                 }
             }, 60000);
+            
+            // NEW: 1-HOUR AUTO-RESTART SLEDGEHAMMER (Prevent Zombie States)
+            setInterval(() => {
+                if (isPrimary) {
+                    console.log("\n[SYS] ⏳ Executing scheduled hourly reboot to permanently prevent zombie states...");
+                    process.exit(1);
+                }
+            }, 60 * 60 * 1000); // 60 minutes
         }
     };
 

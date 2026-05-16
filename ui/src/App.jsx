@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, Trash2, Moon, Sun, 
   Pin, Bell, BellOff, ArrowLeft, GripVertical, Clock, RefreshCw, Zap, List,
   Search, GitCompare, Timer, SlidersHorizontal, Copy, CheckCircle2, Eye, EyeOff, Palette,
-  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete
+  Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete, Star
 } from 'lucide-react';
 
 export default function App() {
@@ -16,15 +16,15 @@ export default function App() {
   const [currentTheme, setCurrentTheme] = useState('light-classic');
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   
-  // NEW: Advanced Device & Stealth States
+  // Advanced Device & Stealth States
   const [isWakeLockActive, setIsWakeLockActive] = useState(() => localStorage.getItem('waWakeLock') === 'true');
   const [isBossKeyActive, setIsBossKeyActive] = useState(() => localStorage.getItem('waBossKey') === 'true');
   const [showQuickActions, setShowQuickActions] = useState(false);
   
-  // NEW: Custom Restart Modal State
+  // Custom Restart Modal State
   const [showRestartModal, setShowRestartModal] = useState(false);
   
-  // NEW: App Lock States
+  // App Lock States
   const [appLockPin, setAppLockPin] = useState(() => localStorage.getItem('waAppLockPin') || '');
   const [isAppLocked, setIsAppLocked] = useState(() => !!localStorage.getItem('waAppLockPin'));
   
@@ -38,14 +38,24 @@ export default function App() {
     } catch(e) { return []; }
   });
   
+  // NEW: Store Starred/Monitored Targets for Live Bubble and PiP
+  const [monitoredTargets, setMonitoredTargets] = useState(() => {
+    try {
+      const cached = localStorage.getItem('waMonitoredTargets');
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  });
+  
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
   
-  const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false });
+  // UPDATED: Added RAM, Storage, Network, and Uptime fields
+  const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false, ram: null, storage: null, network: null, botUptime: null });
   const [botStatus, setBotStatus] = useState({ status: 'connected', qrString: null });
   
   const fetchLiveStateRef = useRef();
   const wakeLockRef = useRef(null);
+  const pipWindowRef = useRef(null);
 
   // --- LOCAL STORAGE PERSISTENCE ---
   useEffect(() => {
@@ -72,6 +82,7 @@ export default function App() {
   }, [apiConfig, isDarkMode, currentTheme, isPrivacyMode]);
 
   useEffect(() => { localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets)); }, [targets]);
+  useEffect(() => { localStorage.setItem('waMonitoredTargets', JSON.stringify(monitoredTargets)); }, [monitoredTargets]);
   useEffect(() => { localStorage.setItem('waWakeLock', isWakeLockActive); }, [isWakeLockActive]);
   useEffect(() => { localStorage.setItem('waBossKey', isBossKeyActive); }, [isBossKeyActive]);
   useEffect(() => { localStorage.setItem('waAppLockPin', appLockPin); }, [appLockPin]);
@@ -199,6 +210,10 @@ export default function App() {
       setBotHealth({
         battery: healthRes.document.battery ?? null,
         isCharging: healthRes.document.isCharging ?? false,
+        ram: healthRes.document.ram ?? null,
+        storage: healthRes.document.storage ?? null,
+        network: healthRes.document.network ?? null,
+        botUptime: healthRes.document.botUptime ?? null
       });
     }
 
@@ -281,13 +296,66 @@ export default function App() {
   useEffect(() => {
     if (!apiConfig.url || !apiConfig.key) return;
     
-    // FIX: Removed the "if (isAppLocked) return;" restriction!
     // The app will now securely fetch live stats in the background while you are looking at the Lock Screen.
     fetchLiveState();
     
     const interval = setInterval(fetchLiveState, 60000);
     return () => clearInterval(interval);
   }, [apiConfig.url, apiConfig.key, fetchLiveState]);
+
+  // --- NEW NATIVE DOCUMENT PICTURE-IN-PICTURE RENDERER ---
+  const renderPiPContent = useCallback(() => {
+    if (!pipWindowRef.current) return;
+    const container = pipWindowRef.current.document.getElementById('pip-root');
+    if (!container) return;
+    
+    const monitoredList = targets.filter(t => monitoredTargets.includes(t.id));
+    
+    let html = `<h3 style="margin-top:0;font-size:15px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;font-family:sans-serif;">⭐ Live Monitor</h3>`;
+    if (monitoredList.length === 0) {
+        html += `<p style="font-size:12px;color:#6b7280;font-family:sans-serif;">No starred targets.</p>`;
+    } else {
+        monitoredList.forEach(t => {
+            const dot = t.isOnline ? '<span style="color:#22c55e;">🟢</span>' : '<span style="color:#ef4444;">🔴</span>';
+            const nameColor = isDarkMode ? '#e5e7eb' : '#374151';
+            html += `<div style="display:flex;align-items:center;margin-bottom:10px;font-size:14px;font-family:sans-serif;">
+                ${dot} <span style="margin-left:8px;font-weight:600;color:${nameColor}">${t.name}</span>
+            </div>`;
+        });
+    }
+    container.innerHTML = html;
+  }, [targets, monitoredTargets, isDarkMode]);
+
+  useEffect(() => {
+      renderPiPContent(); // Always keep PiP updated if active
+  }, [targets, monitoredTargets, renderPiPContent]);
+
+  const openPiP = async () => {
+    if (!('documentPictureInPicture' in window)) {
+        alert('Your Android Chrome version blocks the native PiP API. You can safely ignore this as the background monitor still runs perfectly!');
+        return;
+    }
+    try {
+        const pipWindow = await window.documentPictureInPicture.requestWindow({ width: 280, height: 320 });
+        pipWindowRef.current = pipWindow;
+        
+        pipWindow.document.body.style.margin = '0';
+        pipWindow.document.body.style.padding = '12px';
+        pipWindow.document.body.style.backgroundColor = isDarkMode ? '#111827' : '#f9fafb';
+        pipWindow.document.body.style.color = isDarkMode ? '#fff' : '#000';
+        
+        const container = pipWindow.document.createElement('div');
+        container.id = 'pip-root';
+        pipWindow.document.body.appendChild(container);
+        
+        pipWindow.addEventListener('pagehide', () => { pipWindowRef.current = null; });
+        
+        renderPiPContent();
+    } catch (e) {
+        console.error('PiP failed', e);
+        alert('Failed to launch PiP mode.');
+    }
+  };
 
   const handleAddTarget = useCallback(async () => {
     if (!newTarget.number) return;
@@ -311,10 +379,16 @@ export default function App() {
         mongoFetch('updateOne', 'system_config', { _id: 'main_config' }, {}, null, { $set: { targets: numbersOnly } });
         return updated;
     });
+    setMonitoredTargets(prev => prev.filter(t => t !== id)); // Clean up monitored list
     setViewingTarget(null);
   }, [mongoFetch]);
 
   const togglePin = useCallback((id) => setTargets(prev => prev.map(t => t.id === id ? { ...t, isPinned: !t.isPinned, pinOrder: !t.isPinned ? prev.filter(x=>x.isPinned).length : 99 } : t)), []);
+  
+  // NEW Toggle Monitor
+  const toggleMonitor = useCallback((id) => {
+      setMonitoredTargets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
 
   const toggleMute = useCallback(async (id) => {
     setTargets(prev => {
@@ -349,15 +423,32 @@ export default function App() {
     alert(isUpdate ? '☁️ Update & Restart command sent! The bot will download the latest code and reboot in ~5 seconds.' : '🔄 Restart command sent! The bot will reboot in ~5 seconds.');
   };
 
-  // --- APP LOCK SCREEN RENDERER ---
+  // APP LOCK SCREEN RENDERER
   if (isAppLocked) {
-    return <LockScreenView expectedPin={appLockPin} onUnlock={() => setIsAppLocked(false)} />;
+    return <LockScreenView expectedPin={appLockPin} onUnlock={() => setIsAppLocked(false)} isDarkMode={isDarkMode} />;
   }
+
+  // Calculate live tracked users for the bubble
+  const onlineMonitoredCount = targets.filter(t => monitoredTargets.includes(t.id) && t.isOnline).length;
+  const totalMonitoredCount = monitoredTargets.length;
 
   return (
     <div className={`wa-app-container`}>
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         
+        {/* NEW: Live Floating Bubble */}
+        {totalMonitoredCount > 0 && activeTab === 'dashboard' && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] glass-card px-4 py-1.5 rounded-full shadow-lg border border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-2 animate-in slide-in-from-top-4">
+                <span className="relative flex h-2.5 w-2.5">
+                    {onlineMonitoredCount > 0 && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${onlineMonitoredCount > 0 ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}></span>
+                </span>
+                <span className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                    {onlineMonitoredCount} Online
+                </span>
+            </div>
+        )}
+
         {/* Restart Options Modal */}
         {showRestartModal && (
           <div className="absolute inset-0 z-[110] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in">
@@ -398,7 +489,9 @@ export default function App() {
           {viewingTarget ? (
             <TargetDetailView 
               target={targets.find(t => t.id === viewingTarget)} isPrivacyMode={isPrivacyMode} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
-              onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} mongoFetch={mongoFetch} apiConfig={apiConfig}
+              onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} 
+              onToggleMonitor={toggleMonitor} isMonitored={monitoredTargets.includes(viewingTarget)} // Passes monitor state
+              mongoFetch={mongoFetch} apiConfig={apiConfig}
             />
           ) : activeTab === 'dashboard' ? (
             <DashboardView targets={targets} pingStats={pingStats} botHealth={botHealth} isPrivacyMode={isPrivacyMode} setIsPrivacyMode={setIsPrivacyMode} isSyncing={isSyncing} onTargetClick={setViewingTarget} reorderPinned={reorderPinned} onTogglePin={togglePin} onSnooze={handleSnooze} />
@@ -409,8 +502,8 @@ export default function App() {
               apiConfig={apiConfig} setApiConfig={setApiConfig} 
               isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} 
               currentTheme={currentTheme} setCurrentTheme={setCurrentTheme}
-              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} mongoFetch={mongoFetch}
-              botStatus={botStatus}
+              newTarget={newTarget} setNewTarget={setNewTarget} handleAddTarget={handleAddTarget} pingStats={pingStats} botHealth={botHealth} mongoFetch={mongoFetch}
+              botStatus={botStatus} isSyncing={isSyncing} onRefreshStats={fetchLiveState}
               isWakeLockActive={isWakeLockActive} setIsWakeLockActive={setIsWakeLockActive}
               isBossKeyActive={isBossKeyActive} setIsBossKeyActive={setIsBossKeyActive}
               onRequestRestart={() => setShowRestartModal(true)} 
@@ -423,6 +516,9 @@ export default function App() {
         <div className="absolute bottom-20 right-6 z-[60] flex flex-col items-end space-y-3">
           {showQuickActions && (
              <div className="flex flex-col items-center space-y-3 mb-2 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                <button onClick={() => { openPiP(); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center`} title="Mini Tracker PiP">
+                    <span className="text-xl leading-none">🔲</span>
+                </button>
                 <button onClick={() => { setIsWakeLockActive(!isWakeLockActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isWakeLockActive ? 'bg-purple-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center`} title="Wake Lock">
                     <span className="text-xl leading-none">☕</span>
                 </button>
@@ -465,9 +561,7 @@ export default function App() {
 // VIEWS (MEMOIZED FOR PERFORMANCE)
 // ==========================================
 
-// FIX: Completely refactored LockScreen to use strictly true Tailwind dark mode classes (dark:bg-black)
-// FIX: Removed biometric dummy-trigger to prevent the Passkey WebAuthn popup confusion
-const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock }) {
+const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isDarkMode }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
@@ -589,30 +683,22 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
               <span className="text-[10px] font-bold uppercase tracking-wider">{isPrivacyMode ? 'Privacy: ON' : 'Privacy Mode'}</span>
           </div>
         </div>
-        <div className="flex flex-col items-end mr-12">
-          <div className="flex space-x-2 mb-1">
-            {botHealth && botHealth.battery !== null && (
-              <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400">
-                {botHealth.isCharging ? <BatteryCharging size={10} className="fill-current" /> : <Battery size={10} className="fill-current" />}
-                <span>{botHealth.battery}%</span>
-              </div>
-            )}
-            {pingStats.wsStatus === 'Live' && (
-              <div className="flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
-                <Zap size={10} className="fill-current" /> Live
-              </div>
-            )}
-            <div className={`flex items-center space-x-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${pingStats.dbStatus === 'Connected' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : pingStats.dbStatus === 'Error' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' : 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-400'}`}>
-              <RefreshCw size={10} className={`${isSyncing ? 'animate-spin' : ''} mr-1`} /> {pingStats.dbStatus}
-            </div>
+        
+        {/* NEW MINIMALIST HEADER TRAY */}
+        <div className="flex flex-col items-end mr-2">
+          <div className="flex items-center space-x-2 mb-1">
+             <div title={`WebSocket: ${pingStats.wsStatus}`} className={`w-2 h-2 rounded-full ${pingStats.wsStatus === 'Live' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'}`}></div>
+             <div title={`Database: ${pingStats.dbStatus}`} className={`w-2 h-2 rounded-full ${pingStats.dbStatus === 'Connected' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           </div>
-          <div className="flex items-center justify-end space-x-1 text-xs text-gray-600 dark:text-gray-400 font-mono">
-            {pingStats.latency > 0 && <span>{pingStats.latency}ms DB</span>}
-          </div>
+          {botHealth && botHealth.battery !== null && (
+             <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400 font-mono tracking-wide mt-1 text-right">
+                🔋{botHealth.battery}% • 🧠{botHealth.ram?.split('/')[0]?.trim() || '?GB'} • 💾{botHealth.storage?.split(' ')[0] || '?GB'}
+             </div>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center space-x-2 mb-6">
+      <div className="flex items-center space-x-2 mb-6 mt-4">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-3.5 text-gray-500 dark:text-gray-400" size={18} />
           <input 
@@ -666,7 +752,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
   );
 });
 
-const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, mongoFetch, apiConfig }) {
+const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, onToggleMonitor, isMonitored, mongoFetch, apiConfig }) {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); 
   const [isCopied, setIsCopied] = useState(false);
@@ -810,15 +896,20 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
       <div className="p-6 pb-24 space-y-6 relative">
         {isLoadingAnalytics && <div className="absolute inset-0 bg-gray-50/80 dark:bg-gray-950/80 z-20 flex items-center justify-center m-6 rounded-3xl"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
 
-        <div className="grid grid-cols-4 gap-3 relative z-10">
-          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700'}`}>
-            <Pin size={20} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[10px] font-semibold mt-1">Pin</span>
+        {/* UPDATED: Added Monitor Button -> changed grid to grid-cols-5 */}
+        <div className="grid grid-cols-5 gap-2 relative z-10">
+          <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700'}`}>
+            <Pin size={18} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[9px] font-semibold mt-1">Pin</span>
           </button>
-          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center p-3 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700'}`}>
-            {target.isMuted ? <BellOff size={20} /> : <Bell size={20} />} <span className="text-[10px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
+          {/* NEW: Monitor Button */}
+          <button onClick={() => onToggleMonitor(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${isMonitored ? 'bg-yellow-500 text-white shadow-md' : 'glass-card text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-gray-700'}`}>
+            <Star size={18} className={isMonitored ? 'fill-current' : ''} /> <span className="text-[9px] font-semibold mt-1">Monitor</span>
           </button>
-          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700 transition-all active:scale-95 relative`}>
-            <Timer size={20} /> <span className="text-[10px] font-semibold mt-1">Snooze</span>
+          <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700'}`}>
+            {target.isMuted ? <BellOff size={18} /> : <Bell size={18} />} <span className="text-[9px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
+          </button>
+          <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700 transition-all active:scale-95 relative`}>
+            <Timer size={18} /> <span className="text-[9px] font-semibold mt-1">Snooze</span>
             {showSnoozeMenu && (
               <div className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl w-32 py-1 z-50 text-left shadow-lg">
                 <div onClick={() => { onSnooze(target.id, 1); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">1 Hour</div>
@@ -827,8 +918,8 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
               </div>
             )}
           </button>
-          <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center p-3 rounded-2xl glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700 transition-all active:scale-95">
-            <Trash2 size={20} /> <span className="text-[10px] font-semibold mt-1">Remove</span>
+          <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700 transition-all active:scale-95">
+            <Trash2 size={18} /> <span className="text-[9px] font-semibold mt-1">Remove</span>
           </button>
         </div>
 
@@ -1107,7 +1198,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, mongoFetch, botStatus, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart, appLockPin, setAppLockPin }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, botHealth, mongoFetch, botStatus, isSyncing, onRefreshStats, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart, appLockPin, setAppLockPin }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
@@ -1134,6 +1225,23 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
                 : 'Bot is waiting for QR login. Check the overlay.'}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* NEW: SYSTEM DIAGNOSTICS CARD */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4 ml-4 pr-4">
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest">System Diagnostics</h3>
+            <button onClick={onRefreshStats} disabled={isSyncing} className={`text-xs font-bold px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 active:scale-95 transition-transform flex items-center space-x-1 ${isSyncing ? 'opacity-50' : ''}`}>
+                <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} /> <span>Refresh</span>
+            </button>
+        </div>
+        <div className="glass-card p-4 space-y-3">
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Uptime</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.botUptime || 'N/A'}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Network</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.network || 'N/A'}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">RAM Usage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.ram || 'N/A'}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Storage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.storage || 'N/A'}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Ping Latency</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{pingStats.latency} ms</span></div>
         </div>
       </div>
 
