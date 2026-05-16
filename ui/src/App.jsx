@@ -7,6 +7,69 @@ import {
   Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete, Star
 } from 'lucide-react';
 
+// --- NEW DRAGGABLE CHAT HEAD BUBBLE COMPONENT ---
+const DraggableBubble = memo(function DraggableBubble({ target, initialY }) {
+    const [pos, setPos] = useState({ x: window.innerWidth - 70, y: initialY });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStart = useRef({ x: 0, y: 0 });
+
+    const handleTouchStart = (e) => {
+        setIsDragging(true);
+        dragStart.current = { x: e.touches[0].clientX - pos.x, y: e.touches[0].clientY - pos.y };
+    };
+    
+    const handleTouchMove = (e) => {
+        if (!isDragging) return;
+        e.preventDefault(); // Prevents screen scrolling while dragging bubble
+        setPos({ x: e.touches[0].clientX - dragStart.current.x, y: e.touches[0].clientY - dragStart.current.y });
+    };
+
+    const handleTouchEnd = () => setIsDragging(false);
+
+    const handleMouseDown = (e) => {
+        setIsDragging(true);
+        dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    };
+    const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        setPos({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+    };
+    const handleMouseUp = () => setIsDragging(false);
+
+    useEffect(() => {
+        if (isDragging) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            window.addEventListener('touchmove', handleTouchMove, { passive: false });
+            window.addEventListener('touchend', handleTouchEnd);
+        } else {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('touchend', handleTouchEnd);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('touchend', handleTouchEnd);
+        }
+    }, [isDragging]);
+
+    return (
+        <div 
+            style={{ left: pos.x, top: pos.y, touchAction: 'none' }}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            className="fixed z-[999] w-14 h-14 rounded-full glass-card border border-gray-200 dark:border-gray-700 shadow-xl flex items-center justify-center cursor-grab active:cursor-grabbing backdrop-blur-md bg-white/60 dark:bg-gray-900/60 transition-transform active:scale-95"
+        >
+            <img src={`https://api.dicebear.com/7.x/shapes/svg?seed=${target.number}`} alt="avatar" className="w-12 h-12 rounded-full opacity-80" />
+            <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-800 shadow-sm ${target.isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+        </div>
+    );
+});
+
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -19,6 +82,7 @@ export default function App() {
   // Advanced Device & Stealth States
   const [isWakeLockActive, setIsWakeLockActive] = useState(() => localStorage.getItem('waWakeLock') === 'true');
   const [isBossKeyActive, setIsBossKeyActive] = useState(() => localStorage.getItem('waBossKey') === 'true');
+  const [isPanicShakeActive, setIsPanicShakeActive] = useState(() => localStorage.getItem('waPanicShake') === 'true'); // NEW: Shake to Hide state
   const [showQuickActions, setShowQuickActions] = useState(false);
   
   // Custom Restart Modal State
@@ -38,7 +102,7 @@ export default function App() {
     } catch(e) { return []; }
   });
   
-  // NEW: Store Starred/Monitored Targets for Live Bubble and PiP
+  // Store Starred/Monitored Targets for Live Bubble and PiP
   const [monitoredTargets, setMonitoredTargets] = useState(() => {
     try {
       const cached = localStorage.getItem('waMonitoredTargets');
@@ -49,8 +113,8 @@ export default function App() {
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
   
-  // UPDATED: Added RAM, Storage, Network, and Uptime fields
-  const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false, ram: null, storage: null, network: null, botUptime: null });
+  // UPDATED: Added CPU Temp to BotHealth
+  const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false, ram: null, storage: null, network: null, botUptime: null, cpuTemp: null });
   const [botStatus, setBotStatus] = useState({ status: 'connected', qrString: null });
   
   const fetchLiveStateRef = useRef();
@@ -85,6 +149,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('waMonitoredTargets', JSON.stringify(monitoredTargets)); }, [monitoredTargets]);
   useEffect(() => { localStorage.setItem('waWakeLock', isWakeLockActive); }, [isWakeLockActive]);
   useEffect(() => { localStorage.setItem('waBossKey', isBossKeyActive); }, [isBossKeyActive]);
+  useEffect(() => { localStorage.setItem('waPanicShake', isPanicShakeActive); }, [isPanicShakeActive]);
   useEffect(() => { localStorage.setItem('waAppLockPin', appLockPin); }, [appLockPin]);
 
   // --- STEALTH & DEVICE APIs ---
@@ -133,6 +198,22 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isBossKeyActive]);
+
+  // NEW: Shake to Hide (Panic Mode) via devicemotion API
+  useEffect(() => {
+    const handleMotion = (event) => {
+        const { x, y, z } = event.accelerationIncludingGravity || {};
+        if (!x || !y || !z) return;
+        const acceleration = Math.sqrt(x*x + y*y + z*z);
+        if (acceleration > 25) {
+            window.location.href = 'https://drive.google.com';
+        }
+    };
+    if (isPanicShakeActive) {
+        window.addEventListener('devicemotion', handleMotion);
+    }
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [isPanicShakeActive]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
   const mongoFetch = useCallback(async (action, collection, query = {}, sort = {}, limit = null, update = {}) => {
@@ -213,7 +294,8 @@ export default function App() {
         ram: healthRes.document.ram ?? null,
         storage: healthRes.document.storage ?? null,
         network: healthRes.document.network ?? null,
-        botUptime: healthRes.document.botUptime ?? null
+        botUptime: healthRes.document.botUptime ?? null,
+        cpuTemp: healthRes.document.cpuTemp ?? null
       });
     }
 
@@ -303,7 +385,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [apiConfig.url, apiConfig.key, fetchLiveState]);
 
-  // --- NEW NATIVE DOCUMENT PICTURE-IN-PICTURE RENDERER ---
+  // --- NATIVE DOCUMENT PICTURE-IN-PICTURE RENDERER ---
   const renderPiPContent = useCallback(() => {
     if (!pipWindowRef.current) return;
     const container = pipWindowRef.current.document.getElementById('pip-root');
@@ -332,7 +414,7 @@ export default function App() {
 
   const openPiP = async () => {
     if (!('documentPictureInPicture' in window)) {
-        alert('Your Android Chrome version blocks the native PiP API. You can safely ignore this as the background monitor still runs perfectly!');
+        alert('Your Chrome version blocks the native PiP API. You can safely ignore this, as the transparent floating bubbles have spawned on your screen!');
         return;
     }
     try {
@@ -385,7 +467,7 @@ export default function App() {
 
   const togglePin = useCallback((id) => setTargets(prev => prev.map(t => t.id === id ? { ...t, isPinned: !t.isPinned, pinOrder: !t.isPinned ? prev.filter(x=>x.isPinned).length : 99 } : t)), []);
   
-  // NEW Toggle Monitor
+  // Toggle Monitor
   const toggleMonitor = useCallback((id) => {
       setMonitoredTargets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }, []);
@@ -436,7 +518,14 @@ export default function App() {
     <div className={`wa-app-container`}>
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
         
-        {/* NEW: Live Floating Bubble */}
+        {/* NEW DRAGGABLE BUBBLES FOR MONITORED TARGETS */}
+        {monitoredTargets.map((id, index) => {
+            const target = targets.find(t => t.id === id);
+            if (!target) return null;
+            return <DraggableBubble key={id} target={target} initialY={100 + (index * 65)} />;
+        })}
+
+        {/* Live Floating Bubble */}
         {totalMonitoredCount > 0 && activeTab === 'dashboard' && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] glass-card px-4 py-1.5 rounded-full shadow-lg border border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-2 animate-in slide-in-from-top-4">
                 <span className="relative flex h-2.5 w-2.5">
@@ -506,6 +595,7 @@ export default function App() {
               botStatus={botStatus} isSyncing={isSyncing} onRefreshStats={fetchLiveState}
               isWakeLockActive={isWakeLockActive} setIsWakeLockActive={setIsWakeLockActive}
               isBossKeyActive={isBossKeyActive} setIsBossKeyActive={setIsBossKeyActive}
+              isPanicShakeActive={isPanicShakeActive} setIsPanicShakeActive={setIsPanicShakeActive}
               onRequestRestart={() => setShowRestartModal(true)} 
               appLockPin={appLockPin} setAppLockPin={setAppLockPin}
             />
@@ -684,15 +774,21 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
           </div>
         </div>
         
-        {/* NEW MINIMALIST HEADER TRAY */}
+        {/* MINIMALIST HEADER TRAY */}
         <div className="flex flex-col items-end mr-2">
           <div className="flex items-center space-x-2 mb-1">
              <div title={`WebSocket: ${pingStats.wsStatus}`} className={`w-2 h-2 rounded-full ${pingStats.wsStatus === 'Live' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'}`}></div>
              <div title={`Database: ${pingStats.dbStatus}`} className={`w-2 h-2 rounded-full ${pingStats.dbStatus === 'Connected' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           </div>
           {botHealth && botHealth.battery !== null && (
-             <div className="text-[10px] font-bold text-gray-500 dark:text-gray-400 font-mono tracking-wide mt-1 text-right">
-                🔋{botHealth.battery}% • 🧠{botHealth.ram?.split('/')[0]?.trim() || '?GB'} • 💾{botHealth.storage?.split(' ')[0] || '?GB'}
+             <div className="flex items-center space-x-1 text-[10px] font-bold text-gray-500 dark:text-gray-400 font-mono tracking-wide mt-1 text-right">
+                <div className="relative inline-flex items-center justify-center mr-0.5">
+                    <span className="text-[12px]">{botHealth.battery > 25 ? '🔋' : '🪫'}</span>
+                    {botHealth.isCharging && (
+                        <span className="absolute text-[8px] drop-shadow-md z-10" style={{ textShadow: '0px 0px 2px rgba(0,0,0,0.8)' }}>⚡</span>
+                    )}
+                </div>
+                <span>{botHealth.battery}% • 🧠{botHealth.ram?.split('/')[0]?.trim() || '?GB'} • 💾{botHealth.storage?.split(' ')[0] || '?GB'}</span>
              </div>
           )}
         </div>
@@ -988,7 +1084,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
   );
 });
 
-// UPDATED: Advanced Swipe-to-Action Component (Pin Only)
+// Advanced Swipe-to-Action Component (Pin Only)
 const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, isPinnedItem, onTogglePin, onSnooze }) {
   const [swipeX, setSwipeX] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
@@ -1009,13 +1105,11 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
     if (touchStartX === null) return;
     const currentX = e.touches[0].clientX;
     const diff = currentX - touchStartX;
-    // Limit swipe distance for aesthetic feel
     setSwipeX(Math.max(-120, Math.min(120, diff)));
   };
 
   const handleTouchEnd = () => {
     if (swipeX > 80 || swipeX < -80) {
-      // Trigger Pin action for both directions to keep it simple and foolproof
       if (onTogglePin) onTogglePin(target.id);
     }
     setTouchStartX(null);
@@ -1025,7 +1119,6 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
 
   return (
     <div className="relative rounded-[24px] overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      {/* Background Action Layer (Pin Only) */}
       <div className="absolute inset-0 flex justify-between items-center px-6 bg-blue-100 dark:bg-blue-900/30 rounded-[24px]">
           <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
               <Pin size={24} className={target.isPinned ? "fill-current" : ""} />
@@ -1037,7 +1130,6 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
           </div>
       </div>
 
-      {/* Foreground Draggable Card */}
       <div 
         onClick={swipeX === 0 ? onClick : undefined} 
         style={{ transform: `translateX(${swipeX}px)`, transition: isSwiping ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)' }}
@@ -1198,7 +1290,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   );
 });
 
-const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, botHealth, mongoFetch, botStatus, isSyncing, onRefreshStats, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, onRequestRestart, appLockPin, setAppLockPin }) {
+const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDarkMode, setIsDarkMode, currentTheme, setCurrentTheme, newTarget, setNewTarget, handleAddTarget, pingStats, botHealth, mongoFetch, botStatus, isSyncing, onRefreshStats, isWakeLockActive, setIsWakeLockActive, isBossKeyActive, setIsBossKeyActive, isPanicShakeActive, setIsPanicShakeActive, onRequestRestart, appLockPin, setAppLockPin }) {
   const themes = [
     { id: 'light-classic', name: 'Light Classic', icon: <Sun size={18} />, color: 'bg-white' },
     { id: 'dark-amoled', name: 'Dark AMOLED', icon: <Zap size={18} />, color: 'bg-black' }
@@ -1228,7 +1320,7 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
         </div>
       </div>
 
-      {/* NEW: SYSTEM DIAGNOSTICS CARD */}
+      {/* SYSTEM DIAGNOSTICS CARD */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4 ml-4 pr-4">
             <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest">System Diagnostics</h3>
@@ -1239,6 +1331,7 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
         <div className="glass-card p-4 space-y-3">
             <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Uptime</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.botUptime || 'N/A'}</span></div>
             <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Network</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.network || 'N/A'}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">CPU Temp</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.cpuTemp || 'N/A'}</span></div>
             <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">RAM Usage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.ram || 'N/A'}</span></div>
             <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Storage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.storage || 'N/A'}</span></div>
             <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Ping Latency</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{pingStats.latency} ms</span></div>
@@ -1302,6 +1395,15 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
             </div>
             <button onClick={() => setIsBossKeyActive(!isBossKeyActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isBossKeyActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
                <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isBossKeyActive ? 'translate-x-5' : ''}`}></span>
+            </button>
+          </div>
+          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+            <div>
+               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Shake to Hide (Panic)</label>
+               <span className="text-[10px] text-gray-500">Violently shake phone to open Drive</span>
+            </div>
+            <button onClick={() => setIsPanicShakeActive(!isPanicShakeActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isPanicShakeActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isPanicShakeActive ? 'translate-x-5' : ''}`}></span>
             </button>
           </div>
           <div className="p-4 hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors border-t border-gray-100 dark:border-gray-800">

@@ -9,7 +9,7 @@ const { MongoClient } = require('mongodb'); // Added MongoDB support
 const dns = require('dns'); // Added DNS support to bypass Termux SRV issues
 const crypto = require('crypto'); // Added for Unique Instance ID
 const Pusher = require('pusher'); // Added Pusher for Real-Time WebSockets
-const os = require('os'); // NEW: Added native Node.js OS module for hardware diagnostics
+const os = require('os'); // Added native Node.js OS module for hardware diagnostics
 
 dns.setServers(['8.8.8.8', '8.8.4.4']); // Forces Node.js to bypass Termux DNS issues
 
@@ -2028,13 +2028,14 @@ async function getBatteryStatus() {
 }
 // ===============================================================
 
-// NEW: ADVANCED SYSTEM DIAGNOSTICS (RAM, STORAGE, NETWORK)
+// NEW: ADVANCED SYSTEM DIAGNOSTICS (RAM, STORAGE, NETWORK, CPU TEMP)
 async function getAdvancedStats() {
     return new Promise((resolve) => {
         let ramStr = 'N/A';
         let networkType = 'Unknown';
         let botUptime = 'N/A';
         let storageStr = 'Unknown';
+        let cpuTempStr = 'Unknown';
         
         try {
             const ramTotal = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
@@ -2042,8 +2043,12 @@ async function getAdvancedStats() {
             ramStr = `${ramFree}GB / ${ramTotal}GB`;
 
             const nets = os.networkInterfaces();
-            if (nets['wlan0']) networkType = 'WiFi';
-            else if (nets['rmnet_data0'] || nets['rmnet0'] || Object.keys(nets).some(k => k.includes('rmnet'))) networkType = 'Mobile Data (4G/5G)';
+            const hasWifi = !!nets['wlan0'] || !!nets['ap0'];
+            const has4G = !!nets['rmnet_data0'] || !!nets['rmnet0'] || Object.keys(nets).some(k => k.includes('rmnet'));
+            
+            if (hasWifi && has4G) networkType = '4G (Hotspot Active)';
+            else if (has4G) networkType = 'Mobile Data (4G/5G)';
+            else if (hasWifi) networkType = 'WiFi';
 
             botUptime = formatUptime(process.uptime() * 1000);
         } catch(e) {}
@@ -2061,7 +2066,21 @@ async function getAdvancedStats() {
                     }
                 } catch(e){}
             }
-            resolve({ ram: ramStr, network: networkType, uptime: botUptime, storage: storageStr });
+            
+            // Fetch CPU Temperature
+            exec('cat /sys/class/thermal/thermal_zone0/temp', (errTemp, stdoutTemp) => {
+                if (!errTemp && stdoutTemp) {
+                    try {
+                        const tempInt = parseInt(stdoutTemp.trim());
+                        if (tempInt > 1000) {
+                            cpuTempStr = `${(tempInt / 1000).toFixed(1)}°C`;
+                        } else {
+                            cpuTempStr = `${tempInt}°C`;
+                        }
+                    } catch(e) {}
+                }
+                resolve({ ram: ramStr, network: networkType, uptime: botUptime, storage: storageStr, cpuTemp: cpuTempStr });
+            });
         });
     });
 }
@@ -2277,7 +2296,7 @@ async function main() {
                 if (isPrimary && db) {
                     try {
                         const health = await getBatteryStatus();
-                        const advStats = await getAdvancedStats(); // Fetch RAM, Storage, Uptime, Network
+                        const advStats = await getAdvancedStats(); // Fetch RAM, Storage, Uptime, Network, CPU Temp
                         
                         if (health.battery !== null) {
                             await db.collection('system_config').updateOne(
@@ -2289,6 +2308,7 @@ async function main() {
                                     storage: advStats.storage,
                                     network: advStats.network,
                                     botUptime: advStats.uptime,
+                                    cpuTemp: advStats.cpuTemp,
                                     lastUpdated: Date.now() 
                                 } },
                                 { upsert: true }
