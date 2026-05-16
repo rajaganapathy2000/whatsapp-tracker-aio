@@ -516,7 +516,8 @@ export default function App() {
 
   return (
     <div className={`wa-app-container`}>
-      <div className="flex flex-col h-[100dvh] max-w-md mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] sm:my-8 relative">
+      {/* RESPONSIVE FLUID CONTAINER: max-w-7xl on desktop */}
+      <div className="flex flex-col lg:flex-row h-[100dvh] max-w-md lg:max-w-6xl xl:max-w-7xl mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] lg:h-[90vh] sm:my-8 lg:my-auto relative transition-colors duration-300">
         
         {/* NEW DRAGGABLE BUBBLES FOR MONITORED TARGETS */}
         {monitoredTargets.map((id, index) => {
@@ -574,7 +575,24 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto pb-32 scrollbar-hide z-10">
+        {/* RESPONSIVE TAB BAR: Bottom on Mobile, Left Sidebar on Desktop */}
+        <div className="absolute bottom-0 lg:top-0 lg:left-0 lg:w-24 lg:h-full lg:flex-col w-full glass-card border-x-0 border-b-0 lg:border-r lg:border-b-0 lg:border-t-0 rounded-b-[3rem] lg:rounded-l-[3rem] lg:rounded-r-none pb-safe pt-3 lg:pt-0 px-6 lg:px-0 flex justify-around items-center z-50">
+          <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center justify-center p-2 mb-2 lg:mb-8 transition-all duration-300 active:scale-90 lg:w-full lg:h-24 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 lg:scale-110' : 'text-gray-500 dark:text-gray-400 lg:hover:text-blue-400'}`}>
+            <Home size={24} strokeWidth={activeTab === 'dashboard' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] lg:text-[11px] font-medium mt-1 lg:mt-2">Dashboard</span>
+          </button>
+          <button onClick={() => {setActiveTab('compare'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center justify-center p-2 mb-2 lg:mb-8 transition-all duration-300 active:scale-90 lg:w-full lg:h-24 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 lg:scale-110' : 'text-gray-500 dark:text-gray-400 lg:hover:text-blue-400'}`}>
+            <GitCompare size={24} strokeWidth={activeTab === 'compare' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] lg:text-[11px] font-medium mt-1 lg:mt-2">Compare</span>
+          </button>
+          <button onClick={() => {setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center justify-center p-2 mb-2 lg:mb-8 transition-all duration-300 active:scale-90 lg:w-full lg:h-24 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 lg:scale-110' : 'text-gray-500 dark:text-gray-400 lg:hover:text-blue-400'}`}>
+            <Settings size={24} strokeWidth={activeTab === 'settings' && !viewingTarget ? 2.5 : 2} />
+            <span className="text-[10px] lg:text-[11px] font-medium mt-1 lg:mt-2">Settings</span>
+          </button>
+        </div>
+
+        {/* SCROLLABLE MAIN CONTENT AREA (Padded left on desktop for sidebar) */}
+        <div className="flex-1 overflow-y-auto pb-32 lg:pb-8 lg:ml-24 scrollbar-hide z-10 w-full">
           {viewingTarget ? (
             <TargetDetailView 
               target={targets.find(t => t.id === viewingTarget)} isPrivacyMode={isPrivacyMode} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
@@ -602,23 +620,23 @@ export default function App() {
           )}
         </div>
 
-        {/* Floating Quick Action Wheel */}
-        <div className="absolute bottom-20 right-6 z-[60] flex flex-col items-end space-y-3">
+        {/* Floating Quick Action Wheel (Adjusted for Desktop) */}
+        <div className="absolute bottom-20 lg:bottom-8 right-6 lg:right-8 z-[60] flex flex-col items-end space-y-3">
           {showQuickActions && (
              <div className="flex flex-col items-center space-y-3 mb-2 animate-in slide-in-from-bottom-2 fade-in duration-200">
-                <button onClick={() => { openPiP(); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center`} title="Mini Tracker PiP">
+                <button onClick={() => { openPiP(); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center hover:scale-105 transition-transform`} title="Mini Tracker PiP">
                     <span className="text-xl leading-none">🔲</span>
                 </button>
-                <button onClick={() => { setIsWakeLockActive(!isWakeLockActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isWakeLockActive ? 'bg-purple-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center`} title="Wake Lock">
+                <button onClick={() => { setIsWakeLockActive(!isWakeLockActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isWakeLockActive ? 'bg-purple-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center hover:scale-105 transition-transform`} title="Wake Lock">
                     <span className="text-xl leading-none">☕</span>
                 </button>
-                <button onClick={() => { setIsBossKeyActive(!isBossKeyActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isBossKeyActive ? 'bg-indigo-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center`} title="Boss Key">
+                <button onClick={() => { setIsBossKeyActive(!isBossKeyActive); setShowQuickActions(false); }} className={`p-2.5 rounded-full shadow-lg ${isBossKeyActive ? 'bg-indigo-500 text-white' : 'glass-card bg-white dark:bg-gray-800'} flex items-center justify-center hover:scale-105 transition-transform`} title="Boss Key">
                     <span className="text-xl leading-none">🕵️‍♂️</span>
                 </button>
-                <button onClick={() => { setShowRestartModal(true); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center" title="Restart Bot">
+                <button onClick={() => { setShowRestartModal(true); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center hover:scale-105 transition-transform" title="Restart Bot">
                     <span className="text-xl leading-none">🔄</span>
                 </button>
-                <button onClick={() => { setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center" title="Settings">
+                <button onClick={() => { setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false); }} className="p-2.5 rounded-full shadow-lg glass-card bg-white dark:bg-gray-800 flex items-center justify-center hover:scale-105 transition-transform" title="Settings">
                     <span className="text-xl leading-none">⚙️</span>
                 </button>
              </div>
@@ -628,20 +646,6 @@ export default function App() {
           </button>
         </div>
 
-        <div className="absolute bottom-0 w-full glass-card border-x-0 border-b-0 rounded-b-[3rem] pb-safe pt-3 px-6 flex justify-around items-center z-50">
-          <button onClick={() => {setActiveTab('dashboard'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'dashboard' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
-            <Home size={24} strokeWidth={activeTab === 'dashboard' && !viewingTarget ? 2.5 : 2} />
-            <span className="text-[10px] font-medium mt-1">Dashboard</span>
-          </button>
-          <button onClick={() => {setActiveTab('compare'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'compare' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
-            <GitCompare size={24} strokeWidth={activeTab === 'compare' && !viewingTarget ? 2.5 : 2} />
-            <span className="text-[10px] font-medium mt-1">Compare</span>
-          </button>
-          <button onClick={() => {setActiveTab('settings'); setViewingTarget(null); setShowQuickActions(false);}} className={`flex flex-col items-center p-2 mb-2 transition-all duration-300 active:scale-90 ${activeTab === 'settings' && !viewingTarget ? 'text-blue-500 scale-110' : 'text-gray-500 dark:text-gray-400'}`}>
-            <Settings size={24} strokeWidth={activeTab === 'settings' && !viewingTarget ? 2.5 : 2} />
-            <span className="text-[10px] font-medium mt-1">Settings</span>
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -673,8 +677,8 @@ const LockScreenView = memo(function LockScreenView({ expectedPin, onUnlock, isD
   const handleBackspace = () => setPin(pin.slice(0, -1));
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto items-center justify-center font-sans relative z-[999] transition-colors duration-300 bg-gray-50 dark:bg-black text-gray-900 dark:text-white">
-        <div className="relative z-10 flex flex-col items-center w-full px-8">
+    <div className="flex flex-col h-[100dvh] w-full mx-auto items-center justify-center font-sans relative z-[999] transition-colors duration-300 bg-gray-50 dark:bg-black text-gray-900 dark:text-white">
+        <div className="relative z-10 flex flex-col items-center w-full max-w-md px-8">
             <div className="w-14 h-14 rounded-full flex items-center justify-center mb-6 transition-colors bg-blue-100 dark:bg-gray-900 text-blue-600 dark:text-blue-500">
                 <Lock size={28} strokeWidth={2.5} />
             </div>
@@ -794,7 +798,8 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
         </div>
       </div>
 
-      <div className="flex items-center space-x-2 mb-6 mt-4">
+      {/* RESPONSIVE SEARCH & SORT ROW */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:space-x-4 mb-6 mt-4 space-y-4 lg:space-y-0">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-3.5 text-gray-500 dark:text-gray-400" size={18} />
           <input 
@@ -805,11 +810,11 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
             className="w-full glass-card pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500"
           />
         </div>
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 w-full lg:w-64">
           <select 
              value={sortOption} 
              onChange={e => setSortOption(e.target.value)}
-             className="glass-card pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium cursor-pointer"
+             className="w-full glass-card pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none font-medium cursor-pointer"
           >
              <option value="default">Default Sort</option>
              <option value="az">Name (A ➔ Z)</option>
@@ -824,7 +829,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
       {pinnedTargets.length > 0 && (
         <div className="mb-8">
           <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3 flex items-center"><Pin size={14} className="mr-1" /> Pinned</h3>
-          <div className="space-y-3 overflow-x-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 overflow-x-hidden">
             {pinnedTargets.map((target, index) => (
               <div key={target.id} draggable={searchTerm === ''} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()}>
                 <TargetCard target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} isPinnedItem={searchTerm === ''} onTogglePin={onTogglePin} onSnooze={onSnooze} />
@@ -835,7 +840,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
       )}
 
       <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-3">All Targets</h3>
-      <div className="space-y-3 overflow-x-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 overflow-x-hidden">
         {otherTargets.map((target) => <TargetCard key={target.id} target={target} isPrivacyMode={isPrivacyMode} onClick={() => onTargetClick(target.id)} onTogglePin={onTogglePin} onSnooze={onSnooze} />)}
         {targets.length === 0 && (
           <div className="text-center p-8 glass-card border-dashed">
@@ -958,8 +963,8 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
   return (
     <div className="min-h-full animate-in slide-in-from-right-8 duration-300 relative z-10">
-      <div className="wa-app-container pt-12 pb-6 px-6 sticky top-0 z-20 border-b border-gray-200 dark:border-gray-800 shadow-sm">
-        <button onClick={onClose} className="flex items-center text-blue-600 dark:text-blue-400 font-medium mb-4 active:scale-95 transition-transform"><ArrowLeft size={20} className="mr-1" /> Back</button>
+      <div className="wa-app-container pt-12 pb-6 px-6 sticky top-0 z-20 border-b border-gray-200 dark:border-gray-800 shadow-sm bg-gray-50/90 dark:bg-black/90 backdrop-blur-xl">
+        <button onClick={onClose} className="flex items-center text-blue-600 dark:text-blue-400 font-medium mb-4 active:scale-95 transition-transform hover:opacity-80"><ArrowLeft size={20} className="mr-1" /> Back</button>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 ${target.isOnline ? 'border-green-500 shadow-sm' : 'border-gray-300 dark:border-gray-600'} bg-white dark:bg-gray-800 relative transition-all duration-500 overflow-hidden`}>
@@ -989,23 +994,22 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
         </div>
       </div>
 
-      <div className="p-6 pb-24 space-y-6 relative">
+      <div className="p-6 pb-24 relative">
         {isLoadingAnalytics && <div className="absolute inset-0 bg-gray-50/80 dark:bg-gray-950/80 z-20 flex items-center justify-center m-6 rounded-3xl"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
 
-        {/* UPDATED: Added Monitor Button -> changed grid to grid-cols-5 */}
-        <div className="grid grid-cols-5 gap-2 relative z-10">
+        {/* RESPONSIVE BUTTON GRID: Spreads cleanly on Desktop */}
+        <div className="grid grid-cols-5 gap-2 lg:gap-4 lg:max-w-3xl relative z-10 mb-6">
           <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700'}`}>
-            <Pin size={18} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[9px] font-semibold mt-1">Pin</span>
+            <Pin size={18} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Pin</span>
           </button>
-          {/* NEW: Monitor Button */}
           <button onClick={() => onToggleMonitor(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${isMonitored ? 'bg-yellow-500 text-white shadow-md' : 'glass-card text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-gray-700'}`}>
-            <Star size={18} className={isMonitored ? 'fill-current' : ''} /> <span className="text-[9px] font-semibold mt-1">Monitor</span>
+            <Star size={18} className={isMonitored ? 'fill-current' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Monitor</span>
           </button>
           <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700'}`}>
-            {target.isMuted ? <BellOff size={18} /> : <Bell size={18} />} <span className="text-[9px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
+            {target.isMuted ? <BellOff size={18} /> : <Bell size={18} />} <span className="text-[9px] lg:text-[11px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
           </button>
           <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700 transition-all active:scale-95 relative`}>
-            <Timer size={18} /> <span className="text-[9px] font-semibold mt-1">Snooze</span>
+            <Timer size={18} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Snooze</span>
             {showSnoozeMenu && (
               <div className="absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl w-32 py-1 z-50 text-left shadow-lg">
                 <div onClick={() => { onSnooze(target.id, 1); setShowSnoozeMenu(false); }} className="px-4 py-3 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">1 Hour</div>
@@ -1015,68 +1019,73 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
             )}
           </button>
           <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700 transition-all active:scale-95">
-            <Trash2 size={18} /> <span className="text-[9px] font-semibold mt-1">Remove</span>
+            <Trash2 size={18} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Remove</span>
           </button>
         </div>
 
-        <div className="glass-card p-5 overflow-hidden relative">
-          <div className="flex items-center justify-between mb-4 relative z-10">
-            <div className="flex items-center space-x-2">
-              <button onClick={() => setDayOffset(d => d + 1)} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
-              <h2 className="text-sm font-bold w-32 text-center select-none uppercase tracking-wider">{getDayLabel()}</h2>
-              <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
+        {/* RESPONSIVE SPLIT VIEW: Chart and Logs are side-by-side on Desktop */}
+        <div className="lg:flex lg:gap-6 lg:items-stretch">
+            {/* Chart */}
+            <div className="glass-card p-5 overflow-hidden relative lg:flex-1 lg:mt-0 w-full flex flex-col">
+              <div className="flex items-center justify-between mb-4 relative z-10">
+                <div className="flex items-center space-x-2">
+                  <button onClick={() => setDayOffset(d => d + 1)} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 transition-colors active:scale-90"><ChevronLeft size={18} /></button>
+                  <h2 className="text-sm font-bold w-32 text-center select-none uppercase tracking-wider">{getDayLabel()}</h2>
+                  <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total</p>
+                  <p className="text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
+                </div>
+              </div>
+              <div className="mt-6 w-full h-24 lg:h-48 relative -mx-1 flex-1">
+                <svg viewBox={`0 0 230 ${chartHeight}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
+                  <defs>
+                    <linearGradient id="colorActivity" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
+                  </defs>
+                  <line x1="0" y1="0" x2="230" y2="0" stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
+                  <line x1="0" y1={chartHeight/2} x2="230" y2={chartHeight/2} stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
+                  <line x1="0" y1={chartHeight} x2="230" y2={chartHeight} stroke="currentColor" className="text-gray-400 dark:text-gray-600" strokeWidth="1" />
+                  <path d={areaD} fill="url(#colorActivity)" />
+                  <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="flex justify-between text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-2 px-1"><span>12A</span><span>6A</span><span>12P</span><span>6P</span><span>11P</span></div>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total</p>
-              <p className="text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
-            </div>
-          </div>
-          <div className="mt-6 w-full h-24 relative -mx-1">
-            <svg viewBox={`0 0 230 ${chartHeight}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
-              <defs>
-                <linearGradient id="colorActivity" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
-              </defs>
-              <line x1="0" y1="0" x2="230" y2="0" stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
-              <line x1="0" y1={chartHeight/2} x2="230" y2={chartHeight/2} stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
-              <line x1="0" y1={chartHeight} x2="230" y2={chartHeight} stroke="currentColor" className="text-gray-400 dark:text-gray-600" strokeWidth="1" />
-              <path d={areaD} fill="url(#colorActivity)" />
-              <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-2 px-1"><span>12A</span><span>6A</span><span>12P</span><span>6P</span><span>11P</span></div>
-          </div>
-        </div>
 
-        <div className="glass-card p-5 relative mt-6">
-          <div className="flex items-center space-x-3 mb-4">
-            <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-xl text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50">
-              <List size={20} />
-            </div>
-            <h2 className="text-lg font-bold">Session Logs</h2>
-            <span className="ml-auto text-xs font-bold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">{localStats.sessionLogs.length} SESSIONS</span>
-          </div>
-          
-          <div className="space-y-3 mt-4 max-h-64 overflow-y-auto pr-2 scrollbar-hide">
-            {localStats.sessionLogs.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-6 italic">No sessions recorded.</p>
-            ) : (
-              localStats.sessionLogs.map((log, i) => (
-                <div key={log.id || i} className="flex justify-between items-center p-3 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-2.5 h-2.5 rounded-full ${log.isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'}`}></div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-semibold">
-                        {log.start} <span className="text-gray-400 font-normal mx-1">→</span> 
-                        {log.end === 'Active Now' ? <span className="text-green-600 dark:text-green-400">Active Now</span> : log.end}
+            {/* Logs */}
+            <div className="glass-card p-5 relative mt-6 lg:mt-0 lg:flex-1 w-full flex flex-col">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-xl text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50">
+                  <List size={20} />
+                </div>
+                <h2 className="text-lg font-bold">Session Logs</h2>
+                <span className="ml-auto text-xs font-bold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">{localStats.sessionLogs.length} SESSIONS</span>
+              </div>
+              
+              <div className="space-y-3 mt-4 max-h-64 lg:max-h-full lg:flex-1 overflow-y-auto pr-2 scrollbar-hide">
+                {localStats.sessionLogs.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-6 italic">No sessions recorded.</p>
+                ) : (
+                  localStats.sessionLogs.map((log, i) => (
+                    <div key={log.id || i} className="flex justify-between items-center p-3 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-2.5 h-2.5 rounded-full ${log.isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'}`}></div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold">
+                            {log.start} <span className="text-gray-400 font-normal mx-1">→</span> 
+                            {log.end === 'Active Now' ? <span className="text-green-600 dark:text-green-400">Active Now</span> : log.end}
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-1.5 rounded-xl border ${log.isLive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800/50' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800/50'}`}>
+                        {formatDurationMs(log.duration)}
                       </span>
                     </div>
-                  </div>
-                  <span className={`text-xs font-bold px-2 py-1.5 rounded-xl border ${log.isLive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800/50' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800/50'}`}>
-                    {formatDurationMs(log.duration)}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+                  ))
+                )}
+              </div>
+            </div>
         </div>
 
       </div>
@@ -1118,7 +1127,7 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
   };
 
   return (
-    <div className="relative rounded-[24px] overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+    <div className="relative rounded-[24px] overflow-hidden w-full h-full" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       <div className="absolute inset-0 flex justify-between items-center px-6 bg-blue-100 dark:bg-blue-900/30 rounded-[24px]">
           <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
               <Pin size={24} className={target.isPinned ? "fill-current" : ""} />
@@ -1133,7 +1142,7 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
       <div 
         onClick={swipeX === 0 ? onClick : undefined} 
         style={{ transform: `translateX(${swipeX}px)`, transition: isSwiping ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)' }}
-        className="relative z-10 glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700 w-full"
+        className="relative z-10 glass-card p-4 flex items-center active:scale-[0.98] transition-transform duration-200 cursor-pointer group hover:bg-gray-50 dark:hover:bg-gray-700 w-full h-full"
       >
         {isPinnedItem && <div className="cursor-grab active:cursor-grabbing mr-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1"><GripVertical size={18} /></div>}
         <div className="relative mr-4">
@@ -1234,19 +1243,20 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   };
 
   return (
-    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 h-[100dvh] flex flex-col relative z-10">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 h-[100dvh] flex flex-col relative z-10 lg:pb-12">
       <h1 className="text-4xl font-extrabold tracking-tight mb-6">Compare</h1>
 
-      <div className="glass-card p-4 mb-6 space-y-4">
+      {/* RESPONSIVE SELECTORS: Side-by-Side on Desktop */}
+      <div className="glass-card p-4 mb-6 lg:grid lg:grid-cols-2 lg:gap-6 space-y-4 lg:space-y-0">
         <div className="flex items-center justify-between space-x-4">
            <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 flex items-center justify-center font-black flex-shrink-0">A</div>
-           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer" value={targetA} onChange={e => setTargetA(e.target.value)}>
+           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer w-full" value={targetA} onChange={e => setTargetA(e.target.value)}>
              {targets.map(t => <option key={`A_${t.id}`} value={t.number}>{t.name}</option>)}
            </select>
         </div>
         <div className="flex items-center justify-between space-x-4">
            <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50 flex items-center justify-center font-black flex-shrink-0">B</div>
-           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer" value={targetB} onChange={e => setTargetB(e.target.value)}>
+           <select className="flex-1 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 appearance-none cursor-pointer w-full" value={targetB} onChange={e => setTargetB(e.target.value)}>
              {targets.map(t => <option key={`B_${t.id}`} value={t.number}>{t.name}</option>)}
            </select>
         </div>
@@ -1258,7 +1268,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
         <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
       </div>
 
-      <div className="glass-card p-5 flex-1 relative overflow-hidden flex flex-col mb-16">
+      <div className="glass-card p-5 flex-1 relative overflow-hidden flex flex-col mb-16 lg:mb-0">
         {isLoading && <div className="absolute inset-0 bg-white/80 dark:bg-gray-800/80 z-20 flex items-center justify-center"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
         
         <div className="text-center mb-6 pt-2">
@@ -1297,131 +1307,142 @@ const SettingsView = memo(function SettingsView({ apiConfig, setApiConfig, isDar
   ];
 
   return (
-    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24">
+    <div className="p-6 pt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10 mb-24 lg:pb-12">
       <h1 className="text-4xl font-extrabold tracking-tight mb-6">Settings</h1>
       
-      {/* Bot Connection Status Card */}
-      <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Bot Connection Status</h3>
-        <div className={`glass-card p-4 flex items-center space-x-4 border-l-4 transition-all duration-300 ${botStatus.status === 'connected' ? 'border-l-green-500' : 'border-l-red-500'}`}>
-          <div className={`p-3 rounded-full ${botStatus.status === 'connected' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>
-            {botStatus.status === 'connected' ? <CheckCircle2 size={24} /> : <QrCode size={24} />}
-          </div>
-          <div className="flex-1">
-            <h4 className="font-bold text-gray-900 dark:text-white">
-              {botStatus.status === 'connected' ? 'WhatsApp Connected' : 'WhatsApp Disconnected'}
-            </h4>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-              {botStatus.status === 'connected' 
-                ? 'The backend bot is running and working well.' 
-                : 'Bot is waiting for QR login. Check the overlay.'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* SYSTEM DIAGNOSTICS CARD */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4 ml-4 pr-4">
-            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest">System Diagnostics</h3>
-            <button onClick={onRefreshStats} disabled={isSyncing} className={`text-xs font-bold px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 active:scale-95 transition-transform flex items-center space-x-1 ${isSyncing ? 'opacity-50' : ''}`}>
-                <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} /> <span>Refresh</span>
-            </button>
-        </div>
-        <div className="glass-card p-4 space-y-3">
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Uptime</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.botUptime || 'N/A'}</span></div>
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Network</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.network || 'N/A'}</span></div>
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">CPU Temp</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.cpuTemp || 'N/A'}</span></div>
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">RAM Usage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.ram || 'N/A'}</span></div>
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Storage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.storage || 'N/A'}</span></div>
-            <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Ping Latency</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{pingStats.latency} ms</span></div>
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Workspace Theme</h3>
-        <div className="grid grid-cols-2 gap-3">
-          {themes.map((t) => (
-            <button 
-              key={t.id}
-              onClick={() => setCurrentTheme(t.id)}
-              className={`flex items-center space-x-3 p-3 rounded-2xl border transition-all active:scale-95 ${currentTheme === t.id ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-500/10' : 'border-gray-200 dark:border-gray-700 glass-card'}`}
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${t.color}`}>
-                {React.cloneElement(t.icon, { size: 14, className: currentTheme === t.id ? 'text-blue-500' : 'text-gray-400' })}
+      {/* RESPONSIVE 2-COLUMN GRID FOR SETTINGS ON DESKTOP */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-8">
+        
+        {/* COLUMN 1 */}
+        <div className="space-y-8">
+          {/* Bot Connection Status Card */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Bot Connection Status</h3>
+            <div className={`glass-card p-4 flex items-center space-x-4 border-l-4 transition-all duration-300 ${botStatus.status === 'connected' ? 'border-l-green-500' : 'border-l-red-500'}`}>
+              <div className={`p-3 rounded-full ${botStatus.status === 'connected' ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>
+                {botStatus.status === 'connected' ? <CheckCircle2 size={24} /> : <QrCode size={24} />}
               </div>
-              <span className={`text-xs font-bold ${currentTheme === t.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{t.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Quick Add</h3>
-        <div className="glass-card p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input type="text" placeholder="Name" value={newTarget.name} onChange={(e) => setNewTarget({...newTarget, name: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
-            <input type="tel" placeholder="Number" value={newTarget.number} onChange={(e) => setNewTarget({...newTarget, number: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
-            <button onClick={handleAddTarget} disabled={!newTarget.number} className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl disabled:opacity-50 transition-colors shadow-md active:scale-95 shrink-0 flex items-center justify-center"><Plus size={20} /></button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-8">
-        <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Advanced Configuration</h3>
-        <div className="glass-card overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
-          <div className="p-4 bg-gray-50 dark:bg-gray-900"><p className="text-xs font-bold uppercase tracking-wider mb-1 text-gray-600 dark:text-gray-400">1. Vercel Database Proxy</p></div>
-          <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" placeholder="https://my-proxy.vercel.app/api/proxy" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" placeholder="••••••••••••••••••••••••••••••" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
-          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-          <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
-
-          <div className="p-4 bg-purple-50 dark:bg-purple-900/10 border-t border-purple-100 dark:border-purple-900/30"><p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-1">3. Stealth & Device Tools</p></div>
-          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
-            <div>
-               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Screen Wake Lock (☕)</label>
-               <span className="text-[10px] text-gray-500">Prevent screen from sleeping</span>
+              <div className="flex-1">
+                <h4 className="font-bold text-gray-900 dark:text-white">
+                  {botStatus.status === 'connected' ? 'WhatsApp Connected' : 'WhatsApp Disconnected'}
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  {botStatus.status === 'connected' 
+                    ? 'The backend bot is running and working well.' 
+                    : 'Bot is waiting for QR login. Check the overlay.'}
+                </p>
+              </div>
             </div>
-            <button onClick={() => setIsWakeLockActive(!isWakeLockActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isWakeLockActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isWakeLockActive ? 'translate-x-5' : ''}`}></span>
-            </button>
-          </div>
-          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
-            <div>
-               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Boss Key (Incognito)</label>
-               <span className="text-[10px] text-gray-500">Disguise tab when switching away</span>
-            </div>
-            <button onClick={() => setIsBossKeyActive(!isBossKeyActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isBossKeyActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isBossKeyActive ? 'translate-x-5' : ''}`}></span>
-            </button>
-          </div>
-          <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
-            <div>
-               <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Shake to Hide (Panic)</label>
-               <span className="text-[10px] text-gray-500">Violently shake phone to open Drive</span>
-            </div>
-            <button onClick={() => setIsPanicShakeActive(!isPanicShakeActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isPanicShakeActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-               <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isPanicShakeActive ? 'translate-x-5' : ''}`}></span>
-            </button>
-          </div>
-          <div className="p-4 hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors border-t border-gray-100 dark:border-gray-800">
-            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block mb-1">App Lock PIN</label>
-            <div className="flex space-x-2">
-                <input type="password" maxLength={4} placeholder="Set 4-Digit PIN" value={appLockPin} onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, ''))} className="flex-1 bg-transparent border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <button onClick={() => setAppLockPin('')} className="px-4 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold active:scale-95 transition-transform">Clear</button>
-            </div>
-            <span className="text-[10px] text-gray-500 mt-1 block">Locks the dashboard on launch. Leave empty to disable.</span>
           </div>
 
-          <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
-            <button onClick={onRequestRestart} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
-              <Power size={18} />
-              <span>Restart Backend Bot</span>
-            </button>
+          {/* SYSTEM DIAGNOSTICS CARD */}
+          <div>
+            <div className="flex items-center justify-between mb-4 ml-4 pr-4">
+                <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest">System Diagnostics</h3>
+                <button onClick={onRefreshStats} disabled={isSyncing} className={`text-xs font-bold px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 active:scale-95 transition-transform flex items-center space-x-1 ${isSyncing ? 'opacity-50' : ''}`}>
+                    <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} /> <span>Refresh</span>
+                </button>
+            </div>
+            <div className="glass-card p-4 space-y-3">
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Uptime</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.botUptime || 'N/A'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Network</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.network || 'N/A'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">CPU Temp</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.cpuTemp || 'N/A'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">RAM Usage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.ram || 'N/A'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Storage</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{botHealth.storage || 'N/A'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-xs text-gray-500 uppercase font-bold tracking-wider">Ping Latency</span><span className="text-sm font-mono font-medium text-gray-900 dark:text-white">{pingStats.latency} ms</span></div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-4 ml-4">Workspace Theme</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {themes.map((t) => (
+                <button 
+                  key={t.id}
+                  onClick={() => setCurrentTheme(t.id)}
+                  className={`flex items-center space-x-3 p-3 rounded-2xl border transition-all active:scale-95 ${currentTheme === t.id ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-500/10' : 'border-gray-200 dark:border-gray-700 glass-card'}`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${t.color}`}>
+                    {React.cloneElement(t.icon, { size: 14, className: currentTheme === t.id ? 'text-blue-500' : 'text-gray-400' })}
+                  </div>
+                  <span className={`text-xs font-bold ${currentTheme === t.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{t.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {/* COLUMN 2 */}
+        <div className="space-y-8 mt-8 lg:mt-0">
+          <div>
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Quick Add</h3>
+            <div className="glass-card p-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input type="text" placeholder="Name" value={newTarget.name} onChange={(e) => setNewTarget({...newTarget, name: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
+                <input type="tel" placeholder="Number" value={newTarget.number} onChange={(e) => setNewTarget({...newTarget, number: e.target.value})} className="flex-1 min-w-0 wa-app-container border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors placeholder-gray-500" />
+                <button onClick={handleAddTarget} disabled={!newTarget.number} className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl disabled:opacity-50 transition-colors shadow-md active:scale-95 shrink-0 flex items-center justify-center"><Plus size={20} /></button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-widest mb-2 ml-4">Advanced Configuration</h3>
+            <div className="glass-card overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
+              <div className="p-4 bg-gray-50 dark:bg-gray-900"><p className="text-xs font-bold uppercase tracking-wider mb-1 text-gray-600 dark:text-gray-400">1. Vercel Database Proxy</p></div>
+              <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Proxy URL</label><input type="text" placeholder="https://my-proxy.vercel.app/api/proxy" value={apiConfig.url} onChange={(e) => setApiConfig({...apiConfig, url: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+              <div className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secret Key</label><input type="password" placeholder="••••••••••••••••••••••••••••••" value={apiConfig.key} onChange={(e) => setApiConfig({...apiConfig, key: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+              
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/10 border-t border-blue-100 dark:border-blue-900/30"><p className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-1">2. Pusher WebSockets (Live Data)</p></div>
+              <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher App Key</label><input type="text" placeholder="e.g. 1a2b3c4d5e..." value={apiConfig.pusherKey} onChange={(e) => setApiConfig({...apiConfig, pusherKey: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+              <div className="p-4 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Pusher Cluster</label><input type="text" placeholder="e.g. ap2" value={apiConfig.pusherCluster} onChange={(e) => setApiConfig({...apiConfig, pusherCluster: e.target.value})} className="w-full mt-1 bg-transparent border-none p-0 focus:ring-0 text-sm font-medium placeholder-gray-400 outline-none" /></div>
+
+              <div className="p-4 bg-purple-50 dark:bg-purple-900/10 border-t border-purple-100 dark:border-purple-900/30"><p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-1">3. Stealth & Device Tools</p></div>
+              <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Screen Wake Lock (☕)</label>
+                  <span className="text-[10px] text-gray-500">Prevent screen from sleeping</span>
+                </div>
+                <button onClick={() => setIsWakeLockActive(!isWakeLockActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isWakeLockActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                  <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isWakeLockActive ? 'translate-x-5' : ''}`}></span>
+                </button>
+              </div>
+              <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Boss Key (Incognito)</label>
+                  <span className="text-[10px] text-gray-500">Disguise tab when switching away</span>
+                </div>
+                <button onClick={() => setIsBossKeyActive(!isBossKeyActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isBossKeyActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                  <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isBossKeyActive ? 'translate-x-5' : ''}`}></span>
+                </button>
+              </div>
+              <div className="p-4 flex items-center justify-between hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">Shake to Hide (Panic)</label>
+                  <span className="text-[10px] text-gray-500">Violently shake phone to open Drive</span>
+                </div>
+                <button onClick={() => setIsPanicShakeActive(!isPanicShakeActive)} className={`w-10 h-5 rounded-full transition-colors relative ${isPanicShakeActive ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                  <span className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${isPanicShakeActive ? 'translate-x-5' : ''}`}></span>
+                </button>
+              </div>
+              <div className="p-4 hover:bg-purple-50/50 dark:hover:bg-purple-900/20 transition-colors border-t border-gray-100 dark:border-gray-800">
+                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block mb-1">App Lock PIN</label>
+                <div className="flex space-x-2">
+                    <input type="password" maxLength={4} placeholder="Set 4-Digit PIN" value={appLockPin} onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, ''))} className="flex-1 bg-transparent border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <button onClick={() => setAppLockPin('')} className="px-4 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold active:scale-95 transition-transform">Clear</button>
+                </div>
+                <span className="text-[10px] text-gray-500 mt-1 block">Locks the dashboard on launch. Leave empty to disable.</span>
+              </div>
+
+              <div className="p-4 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors border-t border-gray-200 dark:border-gray-700 mt-2">
+                <button onClick={onRequestRestart} className="w-full flex items-center justify-center space-x-2 py-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-xl font-bold active:scale-95 transition-all">
+                  <Power size={18} />
+                  <span>Restart Backend Bot</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );
