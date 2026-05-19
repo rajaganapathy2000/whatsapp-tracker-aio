@@ -342,7 +342,7 @@ async function updateInstantUIStatus(targetNumber) {
              if (pendingDoc) {
                  todayMs += (Date.now() - pendingDoc.onlineStartTime);
                  recentOffline = "Active Now";
-                 recentOfflineMs = pendingDoc.onlineStartTime; // CHANGED FOR LIVE TIMER: Anchors to start time
+                 recentOfflineMs = pendingDoc.onlineStartTime; // Anchors to start time
              }
         }
 
@@ -1877,19 +1877,23 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             if (!pendingDoc) {
                 // New Session - Write start time to Cloud Database
                 const now = new Date();
+                
+                // 🚀 MOVED UP: PUSHER REAL-TIME TRIGGER (Instant UI - Zero Latency)
+                if (pusherClient) {
+                    pusherClient.trigger("whatsapp-tracker", "status-change", {
+                        number: targetNumber,
+                        status: "online",
+                        timestamp: now.getTime()
+                    }).catch(e => console.error("[PUSHER] ⚠️ Trigger failed:", e.message));
+                }
+                
+                // Now do the heavy MongoDB saving in background...
                 await pendingCol.updateOne({ _id: targetNumber }, { $set: { onlineStartTime: now.getTime() } }, { upsert: true });
 
                 activeSessions[targetNumber].isOnline = true; // Local tracker
                 const timeStr = now.toLocaleTimeString();
                 
-                await updateInstantUIStatus(targetNumber); // NEW: Secretary Update
-                // PUSHER REAL-TIME TRIGGER
-                if (pusherClient) {
-                    pusherClient.trigger("whatsapp-tracker", "status-change", {
-                        number: targetNumber,
-                        status: "online"
-                    }).catch(e => console.error("[PUSHER] ⚠️ Trigger failed:", e.message));
-                }
+                await updateInstantUIStatus(targetNumber); // Secretary Update
 
                 // --- NEW OFFLINE DURATION LOGIC ---
                 let offlineDurationStr = "";
@@ -1929,10 +1933,19 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             const pendingDoc = await pendingCol.findOne({ _id: targetNumber });
 
             if (pendingDoc) {
+                const offlineDateObj = new Date();
+                
+                // 🚀 MOVED UP: PUSHER REAL-TIME TRIGGER (Instant UI - Zero Latency)
+                if (pusherClient) {
+                    pusherClient.trigger("whatsapp-tracker", "status-change", {
+                        number: targetNumber,
+                        status: "offline"
+                    }).catch(e => console.error("[PUSHER] ⚠️ Trigger failed:", e.message));
+                }
+                
                 // Session Ended - Calculate off Cloud Start Time
                 activeSessions[targetNumber].isOnline = false;
                 const onlineDateObj = new Date(pendingDoc.onlineStartTime);
-                const offlineDateObj = new Date();
                 const diffMs = offlineDateObj - onlineDateObj;
 
                 // --- SANITY CHECK (Ghost Session Fix) ---
@@ -1946,18 +1959,11 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 const offlineTimeStr = offlineDateObj.toLocaleTimeString();
                 console.log(`[WA-PRESENCE] [${offlineTimeStr}] 🔴 ${displayName} went OFFLINE.`);
                 
-                // PUSHER REAL-TIME TRIGGER
-                if (pusherClient) {
-                    pusherClient.trigger("whatsapp-tracker", "status-change", {
-                        number: targetNumber,
-                        status: "offline"
-                    }).catch(e => console.error("[PUSHER] ⚠️ Trigger failed:", e.message));
-                }
-                
                 updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs); // MongoDB Append
                 await pendingCol.deleteOne({ _id: targetNumber }); // Clear Cloud Pending Session
                 
-                await updateInstantUIStatus(targetNumber); // NEW: Secretary Update
+                await updateInstantUIStatus(targetNumber); // Secretary Update
+                
                 // Restore individual alerts for unmuted targets while keeping Live Scoreboard
                 if (!isDndActive()) {
                     if (!config.muted.includes(targetNumber)) {

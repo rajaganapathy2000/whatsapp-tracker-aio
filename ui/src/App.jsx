@@ -7,7 +7,7 @@ import {
   Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete, Star
 } from 'lucide-react';
 
-// --- NEW LIVE STOPWATCH COMPONENT ---
+// --- LIVE STOPWATCH COMPONENT (Optimized length so it doesn't truncate) ---
 const LiveTimer = memo(function LiveTimer({ startTimeMs }) {
     const [now, setNow] = useState(Date.now());
     
@@ -26,10 +26,10 @@ const LiveTimer = memo(function LiveTimer({ startTimeMs }) {
 
     let timeStr = '';
     if (h > 0) timeStr = `${h} hrs ${m} mins ${s} secs`;
-    else if (m > 0) timeStr = `${m} mins ${s} secs`;
-    else timeStr = `${s} secs`;
+    else if (m > 0) timeStr = `${m} min ${s} sec`;
+    else timeStr = `${s} sec`;
 
-    return <span className="ml-1 tracking-wider lowercase font-mono opacity-90">({timeStr})</span>;
+    return <span className="ml-1 tracking-wider lowercase font-mono opacity-90 inline-block">({timeStr})</span>;
 });
 
 // --- DRAGGABLE CHAT HEAD BUBBLE COMPONENT ---
@@ -371,8 +371,8 @@ export default function App() {
       channel.bind('status-change', (data) => {
         setTargets(prev => prev.map(t => {
           if (t.number === data.number) {
-            // Anchor to Date.now() for fresh incoming Pusher statuses
-            return { ...t, isOnline: data.status === 'online', lastSeen: data.status === 'online' ? 'Active Now' : 'Just now', lastActiveMs: Date.now() };
+            // Uses precise timestamp sent directly from the bot for perfect 0ms latency timer anchoring
+            return { ...t, isOnline: data.status === 'online', lastSeen: data.status === 'online' ? 'Active Now' : 'Just now', lastActiveMs: data.timestamp || Date.now() };
           }
           return t;
         }));
@@ -1013,9 +1013,11 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
               </div>
             </div>
           </div>
-          <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${target.isOnline ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800/50' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-300 dark:border-gray-700'}`}>
-            {target.isOnline ? <Wifi size={12} /> : <WifiOff size={12} />} 
-            <span>{target.isOnline ? 'Online' : 'Offline'}</span>
+          <div className={`flex items-center flex-wrap gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${target.isOnline ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800/50' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-300 dark:border-gray-700'}`}>
+            <div className="flex items-center space-x-1.5">
+               {target.isOnline ? <Wifi size={12} /> : <WifiOff size={12} />} 
+               <span>{target.isOnline ? 'Online' : 'Offline'}</span>
+            </div>
             {target.isOnline && <LiveTimer startTimeMs={target.lastActiveMs} />}
           </div>
         </div>
@@ -1189,14 +1191,17 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
               </a>
               {target.isMuted && <BellOff size={12} className="text-gray-400" />}
           </div>
-          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">
+          
+          {/* TRUNCATE REMOVED FOR ONLINE TARGETS TO PREVENT ... CUTOFF */}
+          <p className={`text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-tight ${target.isOnline ? '' : 'truncate'}`}>
             {target.isOnline ? 
-               <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">
+               <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase block sm:inline">
                  Online Now <LiveTimer startTimeMs={target.lastActiveMs} />
                </span> : 
                <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>
             }
           </p>
+          
           {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
         </div>
         <div className="text-right flex flex-col items-end pl-2">
