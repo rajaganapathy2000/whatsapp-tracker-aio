@@ -7,7 +7,32 @@ import {
   Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete, Star
 } from 'lucide-react';
 
-// --- NEW DRAGGABLE CHAT HEAD BUBBLE COMPONENT ---
+// --- NEW LIVE STOPWATCH COMPONENT ---
+const LiveTimer = memo(function LiveTimer({ startTimeMs }) {
+    const [now, setNow] = useState(Date.now());
+    
+    useEffect(() => {
+        const interval = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    if (!startTimeMs) return null;
+
+    const MathFloor = Math.floor;
+    const elapsed = Math.max(0, now - startTimeMs);
+    const h = MathFloor(elapsed / 3600000);
+    const m = MathFloor((elapsed % 3600000) / 60000);
+    const s = MathFloor((elapsed % 60000) / 1000);
+
+    let timeStr = '';
+    if (h > 0) timeStr = `${h} hrs ${m} mins ${s} secs`;
+    else if (m > 0) timeStr = `${m} mins ${s} secs`;
+    else timeStr = `${s} secs`;
+
+    return <span className="ml-1 tracking-wider lowercase font-mono opacity-90">({timeStr})</span>;
+});
+
+// --- DRAGGABLE CHAT HEAD BUBBLE COMPONENT ---
 const DraggableBubble = memo(function DraggableBubble({ target, initialY }) {
     const [pos, setPos] = useState({ x: window.innerWidth - 70, y: initialY });
     const [isDragging, setIsDragging] = useState(false);
@@ -113,7 +138,6 @@ export default function App() {
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
   
-  // UPDATED: Added CPU Temp to BotHealth
   const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false, ram: null, storage: null, network: null, botUptime: null, cpuTemp: null });
   const [botStatus, setBotStatus] = useState({ status: 'connected', qrString: null });
   
@@ -199,7 +223,7 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isBossKeyActive]);
 
-  // NEW: Shake to Hide (Panic Mode) via devicemotion API
+  // Shake to Hide (Panic Mode) via devicemotion API
   useEffect(() => {
     const handleMotion = (event) => {
         const { x, y, z } = event.accelerationIncludingGravity || {};
@@ -347,6 +371,7 @@ export default function App() {
       channel.bind('status-change', (data) => {
         setTargets(prev => prev.map(t => {
           if (t.number === data.number) {
+            // Anchor to Date.now() for fresh incoming Pusher statuses
             return { ...t, isOnline: data.status === 'online', lastSeen: data.status === 'online' ? 'Active Now' : 'Just now', lastActiveMs: Date.now() };
           }
           return t;
@@ -989,7 +1014,9 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
             </div>
           </div>
           <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${target.isOnline ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800/50' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-300 dark:border-gray-700'}`}>
-            {target.isOnline ? <Wifi size={12} /> : <WifiOff size={12} />} <span>{target.isOnline ? 'Online' : 'Offline'}</span>
+            {target.isOnline ? <Wifi size={12} /> : <WifiOff size={12} />} 
+            <span>{target.isOnline ? 'Online' : 'Offline'}</span>
+            {target.isOnline && <LiveTimer startTimeMs={target.lastActiveMs} />}
           </div>
         </div>
       </div>
@@ -1162,7 +1189,14 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
               </a>
               {target.isMuted && <BellOff size={12} className="text-gray-400" />}
           </div>
-          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">{target.isOnline ? <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">Online Now</span> : <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-0.5">
+            {target.isOnline ? 
+               <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase">
+                 Online Now <LiveTimer startTimeMs={target.lastActiveMs} />
+               </span> : 
+               <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>
+            }
+          </p>
           {isPrivacyMode && <p className="text-[10px] text-gray-400 font-mono mt-1">+{maskNumber(target.number)}</p>}
         </div>
         <div className="text-right flex flex-col items-end pl-2">

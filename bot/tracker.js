@@ -314,7 +314,7 @@ async function saveCloudLidMap() {
     } catch (e) { }
 }
 
-// --- NEW: THE SECRETARY (0.01s Instant Load Fix) ---
+// --- NEW: THE SECRETARY (0.01s Instant Load Fix + Live Stopwatch Fix) ---
 async function updateInstantUIStatus(targetNumber) {
     if (!db) return;
     try {
@@ -342,7 +342,7 @@ async function updateInstantUIStatus(targetNumber) {
              if (pendingDoc) {
                  todayMs += (Date.now() - pendingDoc.onlineStartTime);
                  recentOffline = "Active Now";
-                 recentOfflineMs = Date.now();
+                 recentOfflineMs = pendingDoc.onlineStartTime; // CHANGED FOR LIVE TIMER: Anchors to start time
              }
         }
 
@@ -547,7 +547,7 @@ async function sendGlobalAlert(text) {
     if (config.enableWhatsApp) await sendWhatsAppDirect(text);
 }
 
-// BOUNDED 10 AM AUTO WIPE LOGIC
+// BOUNDED 1 AM AUTO WIPE LOGIC
 async function runAutoWipe() {
     if (!db || !config.botToken || !config.chatId) return;
     try {
@@ -564,7 +564,7 @@ async function runAutoWipe() {
         if (id_to_del - id_from_del > 2000) id_from_del = id_to_del - 2000;
         if (id_to_del <= id_from_del) return;
 
-        console.log(`[SYS] 🧹 Running 10 AM Auto-Wipe strictly between IDs ${id_from_del} and ${id_to_del}...`);
+        console.log(`[SYS] 🧹 Running 1 AM Auto-Wipe strictly between IDs ${id_from_del} and ${id_to_del}...`);
         
         // "delete messages inbetween"
         let allIds = [];
@@ -585,13 +585,13 @@ async function runAutoWipe() {
                 await new Promise(r => setTimeout(r, 600)); // Rate limit protection
             } catch (e) {}
         }
-        console.log(`[SYS] ✅ 10 AM Bounded Auto-Wipe completed successfully.`);
+        console.log(`[SYS] ✅ 1 AM Bounded Auto-Wipe completed successfully.`);
     } catch (e) {
         console.error(`[SYS] ❌ Auto-Wipe Error:`, e.message);
     }
 }
 
-// SCHEDULED TASKS (11:59 PM Bounded Anchor & 10:00 AM Wipe)
+// SCHEDULED TASKS (11:59 PM Bounded Anchor & 1:00 AM Wipe)
 async function checkScheduledTasks() {
     if (!isPrimary) return;
     const now = new Date();
@@ -628,8 +628,8 @@ async function checkScheduledTasks() {
         }
     }
 
-    // 10:00 AM - Trigger Bounded Auto Wipe
-    if (H === 10 && M === 0 && lastWipeDate !== dateStr) {
+    // 1:00 AM - Trigger Bounded Auto Wipe
+    if (H === 1 && M === 0 && lastWipeDate !== dateStr) {
         lastWipeDate = dateStr;
         runAutoWipe(); 
     }
@@ -2198,7 +2198,7 @@ async function main() {
         if (connected) {
             runHeartbeat();
             
-            // Check for 10 AM Auto-Wipe and 11:59 PM Anchor Saving every minute
+            // Check for 1:00 AM Auto-Wipe and 11:59 PM Anchor Saving every minute
             setInterval(checkScheduledTasks, 60000); 
 
             setInterval(async () => {
