@@ -134,6 +134,14 @@ export default function App() {
       return cached ? JSON.parse(cached) : [];
     } catch(e) { return []; }
   });
+
+  // NEW: Store Targets with Aggressive "Live Alert" Alarms Enabled
+  const [alertTargets, setAlertTargets] = useState(() => {
+    try {
+      const cached = localStorage.getItem('waAlertTargets');
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  });
   
   const [newTarget, setNewTarget] = useState({ name: '', number: '' });
   const [pingStats, setPingStats] = useState({ latency: 0, uptime: 'N/A', dbStatus: 'Offline', wsStatus: 'Disconnected' });
@@ -141,6 +149,12 @@ export default function App() {
   const [botHealth, setBotHealth] = useState({ battery: null, isCharging: false, ram: null, storage: null, network: null, botUptime: null, cpuTemp: null });
   const [botStatus, setBotStatus] = useState({ status: 'connected', qrString: null });
   
+  // --- ALARM ENGINE STATE ---
+  const [isAlarmRinging, setIsAlarmRinging] = useState(false);
+  const audioCtxRef = useRef(null);
+  const alarmIntervalRef = useRef(null);
+  const prevTargetsRef = useRef(targets);
+
   const fetchLiveStateRef = useRef();
   const wakeLockRef = useRef(null);
   const pipWindowRef = useRef(null);
@@ -171,6 +185,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('waTrackerCachedTargets', JSON.stringify(targets)); }, [targets]);
   useEffect(() => { localStorage.setItem('waMonitoredTargets', JSON.stringify(monitoredTargets)); }, [monitoredTargets]);
+  useEffect(() => { localStorage.setItem('waAlertTargets', JSON.stringify(alertTargets)); }, [alertTargets]);
   useEffect(() => { localStorage.setItem('waWakeLock', isWakeLockActive); }, [isWakeLockActive]);
   useEffect(() => { localStorage.setItem('waBossKey', isBossKeyActive); }, [isBossKeyActive]);
   useEffect(() => { localStorage.setItem('waPanicShake', isPanicShakeActive); }, [isPanicShakeActive]);
@@ -238,6 +253,75 @@ export default function App() {
     }
     return () => window.removeEventListener('devicemotion', handleMotion);
   }, [isPanicShakeActive]);
+
+  // --- NATIVE AUDIO SYNTHESIZER (No external files needed) ---
+  const playBeep = useCallback(() => {
+      try {
+          if (!audioCtxRef.current) {
+              audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') ctx.resume();
+          
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, ctx.currentTime); // High pitch alarm
+          
+          gain.gain.setValueAtTime(0, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.05);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          
+          osc.start();
+          osc.stop(ctx.currentTime + 0.5);
+      } catch (e) { console.log("Audio play error (Browser restriction):", e); }
+  }, []);
+
+  const stopAlarm = useCallback(() => {
+      setIsAlarmRinging(false);
+      if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
+  }, []);
+
+  // --- ALARM TRIGGER ENGINE ---
+  useEffect(() => {
+      const prev = prevTargetsRef.current;
+      let newlyOnline = false;
+      targets.forEach(t => {
+          if (alertTargets.includes(t.id) && t.isOnline) {
+              const pt = prev.find(x => x.id === t.id);
+              if (!pt || !pt.isOnline) newlyOnline = true; // Transitioned to online!
+          }
+      });
+      
+      if (newlyOnline) {
+          setIsAlarmRinging(true);
+          if ('wakeLock' in navigator) {
+              navigator.wakeLock.request('screen').catch(()=>{}); // Try to wake screen
+          }
+          playBeep();
+          if (alarmIntervalRef.current) clearInterval(alarmIntervalRef.current);
+          alarmIntervalRef.current = setInterval(playBeep, 1000); // Ring every second
+      }
+      prevTargetsRef.current = targets;
+  }, [targets, alertTargets, playBeep]);
+
+  // --- AUTO-DISMISS ALARM ON VISIBILITY ---
+  useEffect(() => {
+      if (isAlarmRinging) {
+          const handleVisibility = () => {
+              if (document.visibilityState === 'visible') {
+                  // User opened phone and saw the notification -> auto dismiss!
+                  setTimeout(() => { stopAlarm(); }, 2000);
+              }
+          };
+          document.addEventListener('visibilitychange', handleVisibility);
+          return () => document.removeEventListener('visibilitychange', handleVisibility);
+      }
+  }, [isAlarmRinging, stopAlarm]);
 
   // --- MEMOIZED PROXY FETCH ENGINE ---
   const mongoFetch = useCallback(async (action, collection, query = {}, sort = {}, limit = null, update = {}) => {
@@ -487,6 +571,7 @@ export default function App() {
         return updated;
     });
     setMonitoredTargets(prev => prev.filter(t => t !== id)); // Clean up monitored list
+    setAlertTargets(prev => prev.filter(t => t !== id)); // Clean up alert list
     setViewingTarget(null);
   }, [mongoFetch]);
 
@@ -495,6 +580,11 @@ export default function App() {
   // Toggle Monitor
   const toggleMonitor = useCallback((id) => {
       setMonitoredTargets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
+
+  // Toggle Live Alert
+  const toggleAlertTarget = useCallback((id) => {
+      setAlertTargets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }, []);
 
   const toggleMute = useCallback(async (id) => {
@@ -544,6 +634,53 @@ export default function App() {
       {/* RESPONSIVE FLUID CONTAINER: max-w-7xl on desktop */}
       <div className="flex flex-col lg:flex-row h-[100dvh] max-w-md lg:max-w-6xl xl:max-w-7xl mx-auto font-sans antialiased overflow-hidden sm:glass-panel sm:rounded-[3rem] sm:h-[850px] lg:h-[90vh] sm:my-8 lg:my-auto relative transition-colors duration-300">
         
+        {/* ================= ALARM MODAL OVERLAY ================= */}
+        {isAlarmRinging && (
+            <div className="fixed inset-0 z-[9999] bg-red-600/95 dark:bg-red-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+                {/* Flashing effect */}
+                <div className="absolute inset-0 bg-white/30 animate-pulse pointer-events-none" style={{ animationDuration: '0.6s' }}></div>
+                
+                <h1 className="text-4xl md:text-5xl font-black text-white mb-2 animate-bounce drop-shadow-2xl">🚨 TARGET ONLINE!</h1>
+                <p className="text-red-100 font-medium mb-8 text-center drop-shadow-md">A monitored target has just connected to WhatsApp.</p>
+
+                <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-[2rem] p-5 shadow-2xl mb-10 z-10 max-h-[50vh] overflow-y-auto border-4 border-red-500/30">
+                    <h3 className="text-xs font-black text-red-500 dark:text-red-400 uppercase tracking-widest border-b border-gray-100 dark:border-gray-800 pb-3 mb-4 flex items-center">
+                        <Zap size={14} className="mr-1 animate-pulse" /> Live Alert Roster
+                    </h3>
+                    
+                    <div className="space-y-3">
+                        {targets.filter(t => alertTargets.includes(t.id)).map(t => (
+                            <div key={t.id} className={`flex flex-col p-3 rounded-2xl border transition-colors ${t.isOnline ? 'bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
+                                <div className="flex justify-between items-center mb-1.5">
+                                    <div className="flex items-center space-x-2.5">
+                                        <div className={`w-3 h-3 rounded-full shadow-sm ${t.isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                                        <span className="font-bold text-gray-900 dark:text-white truncate max-w-[200px] text-lg">{t.name}</span>
+                                    </div>
+                                </div>
+                                <div className="text-xs">
+                                    {t.isOnline ? (
+                                        <span className="text-green-600 dark:text-green-400 font-bold flex items-center bg-green-100 dark:bg-green-900/40 w-max px-2 py-1 rounded-lg mt-1">
+                                            Online Now <LiveTimer startTimeMs={t.lastActiveMs} />
+                                        </span>
+                                    ) : (
+                                        <div className="text-gray-500 dark:text-gray-400 flex flex-col space-y-0.5 mt-1">
+                                            <span className="font-medium">Total Today: {t.totalTime}</span>
+                                            <span className="text-[10px]">Last Seen: {t.lastSeen}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <button onClick={stopAlarm} className="bg-white text-red-600 text-xl md:text-2xl font-black px-12 py-5 rounded-full shadow-2xl active:scale-95 transition-transform z-10 hover:bg-red-50 border-2 border-red-100">
+                    ACKNOWLEDGE
+                </button>
+            </div>
+        )}
+        {/* ======================================================== */}
+
         {/* NEW DRAGGABLE BUBBLES FOR MONITORED TARGETS */}
         {monitoredTargets.map((id, index) => {
             const target = targets.find(t => t.id === id);
@@ -622,7 +759,8 @@ export default function App() {
             <TargetDetailView 
               target={targets.find(t => t.id === viewingTarget)} isPrivacyMode={isPrivacyMode} onClose={() => setViewingTarget(null)} onRemove={handleRemoveTarget}
               onTogglePin={togglePin} onToggleMute={toggleMute} onSnooze={handleSnooze} 
-              onToggleMonitor={toggleMonitor} isMonitored={monitoredTargets.includes(viewingTarget)} // Passes monitor state
+              onToggleMonitor={toggleMonitor} isMonitored={monitoredTargets.includes(viewingTarget)} 
+              onToggleAlert={toggleAlertTarget} isAlertEnabled={alertTargets.includes(viewingTarget)} // NEW ALARM PROP
               mongoFetch={mongoFetch} apiConfig={apiConfig}
             />
           ) : activeTab === 'dashboard' ? (
@@ -878,7 +1016,7 @@ const DashboardView = memo(function DashboardView({ targets, pingStats, botHealt
   );
 });
 
-const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, onToggleMonitor, isMonitored, mongoFetch, apiConfig }) {
+const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode, onClose, onRemove, onTogglePin, onToggleMute, onSnooze, onToggleMonitor, isMonitored, onToggleAlert, isAlertEnabled, mongoFetch, apiConfig }) {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); 
   const [isCopied, setIsCopied] = useState(false);
@@ -1026,17 +1164,25 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
       <div className="p-6 pb-24 relative">
         {isLoadingAnalytics && <div className="absolute inset-0 bg-gray-50/80 dark:bg-gray-950/80 z-20 flex items-center justify-center m-6 rounded-3xl"><RefreshCw className="animate-spin text-blue-500" size={32} /></div>}
 
-        {/* RESPONSIVE BUTTON GRID: Spreads cleanly on Desktop */}
-        <div className="grid grid-cols-5 gap-2 lg:gap-4 lg:max-w-3xl relative z-10 mb-6">
+        {/* RESPONSIVE BUTTON GRID: Spreads cleanly on Desktop. Now a 3x2 grid (6 buttons) */}
+        <div className="grid grid-cols-3 gap-2 lg:gap-4 lg:max-w-3xl relative z-10 mb-6">
           <button onClick={() => onTogglePin(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isPinned ? 'bg-blue-600 text-white shadow-md' : 'glass-card text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700'}`}>
             <Pin size={18} className={target.isPinned ? 'fill-current' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Pin</span>
           </button>
+          
           <button onClick={() => onToggleMonitor(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${isMonitored ? 'bg-yellow-500 text-white shadow-md' : 'glass-card text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-gray-700'}`}>
             <Star size={18} className={isMonitored ? 'fill-current' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Monitor</span>
           </button>
+          
+          {/* NEW LIVE ALERT BUTTON */}
+          <button onClick={() => onToggleAlert(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${isAlertEnabled ? 'bg-red-500 text-white shadow-md' : 'glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700'}`}>
+            <Zap size={18} className={isAlertEnabled ? 'fill-current animate-pulse' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Live Alert</span>
+          </button>
+
           <button onClick={() => onToggleMute(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${target.isMuted ? 'bg-orange-500 text-white shadow-md' : 'glass-card text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-gray-700'}`}>
             {target.isMuted ? <BellOff size={18} /> : <Bell size={18} />} <span className="text-[9px] lg:text-[11px] font-semibold mt-1">{target.isMuted ? 'Unmute' : 'Mute'}</span>
           </button>
+          
           <button onClick={() => setShowSnoozeMenu(!showSnoozeMenu)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-gray-700 transition-all active:scale-95 relative`}>
             <Timer size={18} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Snooze</span>
             {showSnoozeMenu && (
@@ -1047,6 +1193,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
               </div>
             )}
           </button>
+          
           <button onClick={() => {if(window.confirm('Remove target?')) onRemove(target.id);}} className="flex flex-col items-center justify-center py-3 px-1 rounded-2xl glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700 transition-all active:scale-95">
             <Trash2 size={18} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Remove</span>
           </button>
@@ -1192,7 +1339,6 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
               {target.isMuted && <BellOff size={12} className="text-gray-400" />}
           </div>
           
-          {/* TRUNCATE REMOVED FOR ONLINE TARGETS TO PREVENT ... CUTOFF */}
           <p className={`text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-tight ${target.isOnline ? '' : 'truncate'}`}>
             {target.isOnline ? 
                <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase block sm:inline">
