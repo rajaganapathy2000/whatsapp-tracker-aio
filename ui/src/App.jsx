@@ -7,6 +7,36 @@ import {
   Battery, BatteryCharging, Power, QrCode, Coffee, Briefcase, Lock, Delete, Star
 } from 'lucide-react';
 
+// --- UNIVERSAL FORMATTING ENGINES ---
+const formatDurationMs = (ms) => {
+    if (!ms || ms < 0) return "0s";
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+};
+
+const format12Hour = (timeStr) => {
+    if (!timeStr || timeStr === 'Never' || timeStr === 'Active Now' || timeStr === 'Unknown') return timeStr;
+    let datePart = '';
+    let tStr = timeStr;
+    if (timeStr.includes(' ')) {
+        const parts = timeStr.split(' ');
+        datePart = parts[0] + ' ';
+        tStr = parts[1];
+    }
+    if (!tStr || !tStr.includes(':')) return timeStr;
+    const [h, m] = tStr.split(':');
+    let hour = parseInt(h, 10);
+    if (isNaN(hour)) return timeStr;
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12;
+    const padH = String(hour).padStart(2, '0');
+    return `${datePart}${padH}:${m} ${ampm}`;
+};
+
 // --- LIVE STOPWATCH COMPONENT (Optimized length so it doesn't truncate) ---
 const LiveTimer = memo(function LiveTimer({ startTimeMs }) {
     const [now, setNow] = useState(Date.now());
@@ -135,7 +165,7 @@ export default function App() {
     } catch(e) { return []; }
   });
 
-  // NEW: Store Targets with Aggressive "Live Alert" Alarms Enabled
+  // Store Targets with Aggressive "Live Alert" Alarms Enabled
   const [alertTargets, setAlertTargets] = useState(() => {
     try {
       const cached = localStorage.getItem('waAlertTargets');
@@ -379,6 +409,7 @@ export default function App() {
             isOnline: data.isOnline || false,
             lastSeen: data.recentOffline || t.lastSeen,
             lastActiveMs: data.recentOfflineMs || t.lastActiveMs,
+            lastSessionDurationMs: data.recentDurationMs || t.lastSessionDurationMs || 0,
             totalTime: totalTimeStr
           };
         });
@@ -424,6 +455,7 @@ export default function App() {
           totalTime: data.todayMs !== undefined ? totalTimeStr : (existing ? existing.totalTime : '0m'), 
           lastSeen: data.recentOffline || (existing ? existing.lastSeen : 'Never'),
           lastActiveMs: data.recentOfflineMs || (existing ? existing.lastActiveMs : 0),
+          lastSessionDurationMs: data.recentDurationMs || (existing ? existing.lastSessionDurationMs : 0),
           isPinned: existing ? existing.isPinned : false, 
           pinOrder: existing ? existing.pinOrder : 99,
           isMuted: configDoc.muted.includes(num),
@@ -551,7 +583,7 @@ export default function App() {
   const handleAddTarget = useCallback(async () => {
     if (!newTarget.number) return;
     const num = newTarget.number.replace(/\D/g, '');
-    const newT = { id: num, number: num, name: newTarget.name || num, isOnline: false, totalTime: '0m', lastSeen: 'Never', lastActiveMs: 0, isPinned: false, pinOrder: 99, isMuted: false };
+    const newT = { id: num, number: num, name: newTarget.name || num, isOnline: false, totalTime: '0m', lastSeen: 'Never', lastActiveMs: 0, lastSessionDurationMs: 0, isPinned: false, pinOrder: 99, isMuted: false };
     
     setTargets(prev => {
         const updated = [...prev, newT];
@@ -665,7 +697,9 @@ export default function App() {
                                     ) : (
                                         <div className="text-gray-500 dark:text-gray-400 flex flex-col space-y-0.5 mt-1">
                                             <span className="font-medium">Total Today: {t.totalTime}</span>
-                                            <span className="text-[10px]">Last Seen: {t.lastSeen}</span>
+                                            <span className="text-[10px]">
+                                                Last Seen: {format12Hour(t.lastSeen)} {t.lastSessionDurationMs ? `(${formatDurationMs(t.lastSessionDurationMs)})` : ''}
+                                            </span>
                                         </div>
                                     )}
                                 </div>
@@ -1030,16 +1064,6 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
     return `${s.slice(0, 5)}***${s.slice(-4)}`;
   };
 
-  const formatDurationMs = (ms) => {
-    if (!ms) return "0s";
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  };
-
   const copyToClipboard = () => {
     navigator.clipboard.writeText(`+${target.number}`);
     setIsCopied(true);
@@ -1249,8 +1273,8 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
                         <div className={`w-2.5 h-2.5 rounded-full ${log.isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400 dark:bg-gray-600'}`}></div>
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold">
-                            {log.start} <span className="text-gray-400 font-normal mx-1">→</span> 
-                            {log.end === 'Active Now' ? <span className="text-green-600 dark:text-green-400">Active Now</span> : log.end}
+                            {format12Hour(log.start)} <span className="text-gray-400 font-normal mx-1">→</span> 
+                            {log.end === 'Active Now' ? <span className="text-green-600 dark:text-green-400">Active Now</span> : format12Hour(log.end)}
                           </span>
                         </div>
                       </div>
@@ -1302,6 +1326,10 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
     setSwipeX(0); // Snap back
   };
 
+  const lastSeenFormatted = format12Hour(target.lastSeen);
+  const durationFormatted = target.lastSessionDurationMs ? formatDurationMs(target.lastSessionDurationMs) : '';
+  const offlineText = durationFormatted ? `Seen: ${isPrivacyMode ? 'Masked' : lastSeenFormatted} (${durationFormatted})` : `Seen: ${isPrivacyMode ? 'Masked' : lastSeenFormatted}`;
+
   return (
     <div className="relative rounded-[24px] overflow-hidden w-full h-full" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       <div className="absolute inset-0 flex justify-between items-center px-6 bg-blue-100 dark:bg-blue-900/30 rounded-[24px]">
@@ -1339,12 +1367,13 @@ const TargetCard = memo(function TargetCard({ target, isPrivacyMode, onClick, is
               {target.isMuted && <BellOff size={12} className="text-gray-400" />}
           </div>
           
+          {/* TRUNCATE REMOVED FOR ONLINE TARGETS TO PREVENT ... CUTOFF */}
           <p className={`text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-tight ${target.isOnline ? '' : 'truncate'}`}>
             {target.isOnline ? 
                <span className="text-green-600 dark:text-green-400 font-bold tracking-wider text-xs uppercase block sm:inline">
                  Online Now <LiveTimer startTimeMs={target.lastActiveMs} />
                </span> : 
-               <span>Seen: {isPrivacyMode ? 'Masked' : target.lastSeen}</span>
+               <span>{offlineText}</span>
             }
           </p>
           
@@ -1365,16 +1394,6 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
   const [dayOffset, setDayOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [overlapStats, setOverlapStats] = useState({ totalOverlapStr: '0m', overlaps: [] });
-
-  const formatDurationMs = (ms) => {
-    if (!ms || ms < 0) return "0s";
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  };
 
   useEffect(() => {
     if (!apiConfig.url || !apiConfig.key || !targetA || !targetB) return;
@@ -1470,7 +1489,7 @@ const CompareView = memo(function CompareView({ targets, mongoFetch, apiConfig }
                   <div className="flex items-center space-x-3">
                     <GitCompare size={16} className="text-indigo-600 dark:text-indigo-400" />
                     <span className="text-sm font-semibold">
-                      {log.start} <span className="text-gray-400 font-normal mx-1">→</span> {log.end}
+                      {format12Hour(log.start)} <span className="text-gray-400 font-normal mx-1">→</span> {format12Hour(log.end)}
                     </span>
                   </div>
                   <span className="text-xs font-bold px-2.5 py-1.5 rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">

@@ -324,15 +324,18 @@ async function updateInstantUIStatus(targetNumber) {
         let todayMs = records.reduce((acc, r) => acc + (r.durationMs || 0), 0);
         let recentOffline = "Never";
         let recentOfflineMs = 0;
+        let recentDurationMs = 0;
 
         if (records.length > 0) {
            recentOffline = records[0].offlineTime || "Unknown";
            recentOfflineMs = records[0].timestamp + (records[0].durationMs || 0);
+           recentDurationMs = records[0].durationMs || 0;
         } else {
            const lastRec = await db.collection(targetNumber).find().sort({ timestamp: -1 }).limit(1).toArray();
            if (lastRec.length > 0) {
              recentOffline = `${lastRec[0].date.slice(0,5)} ${lastRec[0].offlineTime || ''}`;
              recentOfflineMs = lastRec[0].timestamp + (lastRec[0].durationMs || 0);
+             recentDurationMs = lastRec[0].durationMs || 0;
            }
         }
 
@@ -343,6 +346,7 @@ async function updateInstantUIStatus(targetNumber) {
                  todayMs += (Date.now() - pendingDoc.onlineStartTime);
                  recentOffline = "Active Now";
                  recentOfflineMs = pendingDoc.onlineStartTime; // Anchors to start time
+                 recentDurationMs = 0;
              }
         }
 
@@ -353,6 +357,7 @@ async function updateInstantUIStatus(targetNumber) {
                     todayMs,
                     recentOffline,
                     recentOfflineMs,
+                    recentDurationMs,
                     isOnline
                 }
             }},
