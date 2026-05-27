@@ -18,6 +18,7 @@ const CONFIG_FILE = './config.json';
 const AUTH_DIR = './auth_info';
 const CONTACTS_FILE = './contacts.json'; 
 const SCRIPT_START_TIME = Date.now(); 
+let globalBotStartTime = Date.now(); // NEW: Immortal Uptime Tracker
 
 // MongoDB State
 let mongoClient = null;
@@ -183,6 +184,22 @@ async function connectMongo() {
         console.error("[DB] ❌ MongoDB Connection Failed:", e.message);
         return false;
     }
+}
+
+// NEW: Immortal Uptime Loader
+async function loadCloudUptime() {
+    if (!db) return;
+    try {
+        let doc = await db.collection('system_config').findOne({ _id: 'bot_uptime' });
+        if (!doc) {
+            // First time ever running with DB, stamp the genesis time
+            await db.collection('system_config').insertOne({ _id: 'bot_uptime', startTime: Date.now() });
+            globalBotStartTime = Date.now();
+        } else {
+            // Found a past timestamp, pull it to survive PM2 restarts
+            globalBotStartTime = doc.startTime;
+        }
+    } catch (e) { console.error("[DB] Failed to load Immortal Uptime:", e.message); }
 }
 
 async function updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs) {
@@ -1236,7 +1253,8 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             }
         }
         else if (command === '/ping') {
-            const uptime = formatUptime(Date.now() - SCRIPT_START_TIME);
+            // NEW: Use Immortal Uptime tracker logic
+            const uptime = formatUptime(Date.now() - globalBotStartTime);
             reply(`🏓 Pong! Bot is healthy.\n⏱️ Uptime: ${uptime}\n📡 Tracking: ${config.targets.length} numbers.`);
         }
         else if (command === '/exec') {
@@ -1654,7 +1672,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
         
-        // NEW: Intercept QR code and push to MongoDB for the Web UI
+        // NEW: Intercept QR code, push to MongoDB, and Trigger Pusher Web UI update!
         if (qr && loginMethod === 'qr') {
             console.log('\n[WA-AUTH] 📱 Scan this QR code with your secondary WhatsApp:\n');
             qrcode.generate(qr, { small: true });
@@ -1666,6 +1684,10 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                         { upsert: true }
                     );
                 } catch(e) {}
+            }
+            if (pusherClient) {
+                pusherClient.trigger("whatsapp-tracker", "qr-update", { qrString: qr })
+                    .catch(e => console.error("[PUSHER] ⚠️ QR Trigger failed:", e.message));
             }
         }
         
@@ -2061,7 +2083,6 @@ async function getAdvancedStats() {
             else if (has4G) networkType = 'Mobile Data (4G/5G)';
             else if (hasWifi) networkType = 'WiFi';
 
-            botUptime = formatUptime(process.uptime() * 1000);
         } catch(e) {}
 
         // Fetch Android/Linux specific storage using df -h
@@ -2090,6 +2111,9 @@ async function getAdvancedStats() {
                         }
                     } catch(e) {}
                 }
+                // Immortal Uptime: Compare now to the DB stamped start time instead of process.uptime
+                const uptimeMs = Date.now() - globalBotStartTime;
+                botUptime = formatUptime(uptimeMs);
                 resolve({ ram: ramStr, network: networkType, uptime: botUptime, storage: storageStr, cpuTemp: cpuTempStr });
             });
         });
@@ -2132,18 +2156,23 @@ async function main() {
 
     // Connect MongoDB Early
     const connected = await connectMongo();
+    await loadCloudUptime(); // NEW: Load immortal uptime instantly
 
     // Load entire config from Cloud
     await loadCloudConfig();
     await loadCloudContacts();
     await loadCloudLidMap(); // Sync mapping state continuously
 
+    // --- RESTORED MENU BLOCK WITH PM2 FIX ---
     let useExistingAuth = fs.existsSync(AUTH_DIR);
     if (isAuto) {
         console.log("[SYS] 🤖 AUTO MODE DETECTED: Skipping menu.");
-        if (!fs.existsSync(CONFIG_FILE) || !useExistingAuth) {
-             console.error("[SYS] ❌ ERROR: Configuration or Login missing in --auto mode.");
+        if (!fs.existsSync(CONFIG_FILE)) {
+             console.error("[SYS] ❌ ERROR: Configuration missing in --auto mode.");
              process.exit(1);
+        }
+        if (!useExistingAuth) {
+             console.log("[SYS] ⚠️ No login found. Bypassing menu to launch headless QR generator...");
         }
     } else {
         let exitMenu = false;
@@ -2197,13 +2226,14 @@ async function main() {
             } else console.log("[SYS] ⚠️ Invalid option.");
         }
     }
+    
     if (config.targets.length === 0 && !isAuto) {
          console.log("\n[SYS] ⚠️ No tracking numbers found!");
          const input = await question("Enter numbers to track (comma separated):\n> ");
          config.targets = input.split(',').map(n => n.replace(/\D/g, '').trim()).filter(n => n.length > 0);
          await saveCloudConfig();
     }
-    
+
     // Helper function to safely start background tasks ONLY after setup is finished
     const startMultiInstanceTasks = () => {
         if (connected) {
@@ -2248,6 +2278,19 @@ async function main() {
                     }
                 }
             }, 5 * 60 * 1000);
+
+            // 12-HOUR ANTI-LOGOUT KEEP-ALIVE (Prevents WA Companion Device Purge)
+            setInterval(async () => {
+                if (isPrimary && globalSock && globalSock.user) {
+                    try {
+                        const selfJid = globalSock.user.id.split(':')[0] + '@s.whatsapp.net';
+                        await globalSock.sendMessage(selfJid, { text: '🛡️ [SYSTEM] Automated keep-alive ping to maintain WhatsApp companion session.' });
+                        console.log('\n[SYS] 🛡️ Sent 12-hour anti-logout keep-alive ping to self.');
+                    } catch (e) {
+                        console.error('\n[SYS] ⚠️ Failed to send anti-logout ping:', e.message);
+                    }
+                }
+            }, 12 * 60 * 60 * 1000);
 
             // 5-SECOND LOOP: TrackLive update AND Remote Restart listener
             setInterval(async () => {
@@ -2348,9 +2391,14 @@ async function main() {
         }
     };
 
-    useExistingAuth = fs.existsSync(AUTH_DIR);
+    useExistingAuth = fs.existsSync(AUTH_DIR); // Re-check in case they factory resetted in menu
     if (!useExistingAuth) {
-         if (isAuto) { console.error("[SYS] ❌ ERROR: Missing login in auto mode."); process.exit(1); }
+         if (isAuto) { 
+             console.log("\n[SYS] 🤖 AUTO MODE DETECTED WITHOUT LOGIN. Bypassing terminal prompt and launching headless QR generator...");
+             startMultiInstanceTasks(); 
+             connectToWhatsApp('qr', '');
+             return; // Safely exit the main execution block to prevent crashing on the terminal prompt
+         }
         const methodChoice = await question("\nHow would you like to login?\n1) QR Code\n2) Pairing Code\n> ");
         let loginMethod = 'qr';
         let loginNumber = '';

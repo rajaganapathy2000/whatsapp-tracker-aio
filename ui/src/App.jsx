@@ -484,6 +484,17 @@ export default function App() {
       pusherInstance.connection.bind('disconnected', () => setPingStats(p => ({ ...p, wsStatus: 'Disconnected' })));
 
       const channel = pusherInstance.subscribe('whatsapp-tracker');
+      
+      // NEW: Intercept real-time QR code generation to prevent the web app from getting stuck
+      channel.bind('qr-update', (data) => {
+          setBotStatus(prev => {
+              if (prev.status === 'qr_required') {
+                  return { ...prev, qrString: data.qrString };
+              }
+              return prev;
+          });
+      });
+      
       channel.bind('status-change', (data) => {
         setTargets(prev => prev.map(t => {
           if (t.number === data.number) {
@@ -1198,7 +1209,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
             <Star size={18} className={isMonitored ? 'fill-current' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Monitor</span>
           </button>
           
-          {/* NEW LIVE ALERT BUTTON */}
+          {/* LIVE ALERT BUTTON */}
           <button onClick={() => onToggleAlert(target.id)} className={`flex flex-col items-center justify-center py-3 px-1 rounded-2xl transition-all active:scale-95 ${isAlertEnabled ? 'bg-red-500 text-white shadow-md' : 'glass-card text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-700'}`}>
             <Zap size={18} className={isAlertEnabled ? 'fill-current animate-pulse' : ''} /> <span className="text-[9px] lg:text-[11px] font-semibold mt-1">Live Alert</span>
           </button>
