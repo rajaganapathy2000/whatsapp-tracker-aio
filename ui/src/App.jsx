@@ -1065,8 +1065,17 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); 
   const [isCopied, setIsCopied] = useState(false);
+  
+  // NEW: State for Detailed Graph Toggle
+  const [graphMode, setGraphMode] = useState('hours'); // 'hours' or 'minutes'
 
-  const [localStats, setLocalStats] = useState({ totalTime: '0m', lastSeen: 'N/A', todayTimeline: Array(24).fill(0), sessionLogs: [] });
+  const [localStats, setLocalStats] = useState({ 
+      totalTime: '0m', 
+      lastSeen: 'N/A', 
+      todayTimeline: Array(24).fill(0), // Hours View data (0-60 mins)
+      minuteTimeline: Array(1440).fill(0), // Minute View detailed data (1 or 0)
+      sessionLogs: [] 
+  });
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
 
   const maskNumber = (num) => {
@@ -1099,19 +1108,45 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
         let targetDayMs = 0;
         let recentOffline = dayOffset === 0 && target.isOnline ? "Active Now" : "No Activity";
+        
+        // Data arrays for the two graph views
         const timeline24h = Array(24).fill(0);
+        const timeline1440 = Array(1440).fill(0);
         
         const logs = lineRecords.map(r => ({
            id: r._id || r.timestamp, start: r.onlineTime, end: r.offlineTime || 'Unknown', duration: r.durationMs
         }));
 
+        // Helper to map timestamp string to minute-of-day index
+        const getMinuteIndex = (timeStr) => {
+            if (!timeStr || !timeStr.includes(':')) return 0;
+            const parts = timeStr.split(':').map(Number);
+            let h = parts[0] || 0;
+            let m = parts[1] || 0;
+            if (h > 23) h = 23;
+            if (m > 59) m = 59;
+            return (h * 60) + m;
+        };
+
         lineRecords.forEach(r => {
            targetDayMs += (r.durationMs || 0);
            if (recentOffline === "No Activity") recentOffline = r.offlineTime;
+           
+           // Populate Hours View (0-60 minutes per hour block)
            const hour = parseInt(r.onlineTime.split(':')[0], 10);
            if (!isNaN(hour) && hour >= 0 && hour < 24) timeline24h[hour] += (r.durationMs || 0) / 60000;
+
+           // Populate Exact Minute View (1440 blocks)
+           const startMin = getMinuteIndex(r.onlineTime);
+           const durationMins = Math.ceil((r.durationMs || 0) / 60000);
+           let endMin = startMin + durationMins;
+           if (endMin > 1439) endMin = 1439;
+           for (let i = startMin; i <= endMin; i++) {
+               timeline1440[i] = 1;
+           }
         });
 
+        // Append live session if currently running today
         if (dayOffset === 0 && target.isOnline && currentLiveStart) {
           const liveMs = Date.now() - currentLiveStart;
           targetDayMs += liveMs;
@@ -1119,6 +1154,12 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
           recentOffline = "Active Now";
 
           const d = new Date(currentLiveStart);
+          const startMin = d.getHours() * 60 + d.getMinutes();
+          const endMin = new Date().getHours() * 60 + new Date().getMinutes();
+          for(let i = startMin; i <= endMin; i++) {
+              if (i < 1440) timeline1440[i] = 1;
+          }
+
           const pad = n => String(n).padStart(2, '0');
           logs.unshift({
               id: 'live_session', start: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
@@ -1131,7 +1172,10 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
         setLocalStats({
           totalTime: targetDayMs > 0 ? (h > 0 ? `${h}h ${m}m` : `${m}m`) : '0m',
-          lastSeen: recentOffline, todayTimeline: timeline24h.map(Math.floor), sessionLogs: logs
+          lastSeen: recentOffline, 
+          todayTimeline: timeline24h, 
+          minuteTimeline: timeline1440,
+          sessionLogs: logs
         });
 
       } catch (e) {}
@@ -1142,21 +1186,72 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
   if (!target) return null;
 
-  const maxActivity = 60; const chartHeight = 80;
-  let pathD = `M 0,${chartHeight - (Math.min(localStats.todayTimeline[0], maxActivity) / maxActivity) * chartHeight}`;
-  localStats.todayTimeline.forEach((val, i) => {
-    if (i === 0) return;
-    const x = (i / 23) * 230; 
-    const y = chartHeight - (Math.min(val, maxActivity) / maxActivity) * chartHeight;
-    pathD += ` L ${x},${y}`; 
-  });
-  const areaD = `${pathD} L 230,${chartHeight} L 0,${chartHeight} Z`;
-
   const getDayLabel = () => {
     if (dayOffset === 0) return "Today's Activity";
     if (dayOffset === 1) return "Yesterday's Activity";
     const d = new Date(); d.setDate(d.getDate() - dayOffset);
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+
+  // --- NEW SCROLLABLE GANTT GRAPH RENDERER ---
+  const renderGraph = () => {
+      if (graphMode === 'minutes') {
+          // MINUTE VIEW: High detail 1440-minute scrollable ribbon
+          const rects = [];
+          let currentStart = null;
+          
+          // Optimization: Group continuous active minutes into single wide blocks
+          for(let i=0; i<1440; i++) {
+              if(localStats.minuteTimeline[i] > 0 && currentStart === null) {
+                  currentStart = i;
+              } else if (localStats.minuteTimeline[i] === 0 && currentStart !== null) {
+                  rects.push({ start: currentStart, width: i - currentStart });
+                  currentStart = null;
+              }
+          }
+          if(currentStart !== null) rects.push({ start: currentStart, width: 1440 - currentStart });
+
+          return (
+              <div className="overflow-x-auto scrollbar-hide pb-2 cursor-ew-resize">
+                  {/* 2880px width = Exactly 2 pixels per minute for smooth scrolling detail */}
+                  <div className="min-w-[2880px] h-32 relative px-2">
+                      <svg viewBox="0 0 1440 100" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-4 pb-6">
+                          <line x1="0" y1="50" x2="1440" y2="50" stroke="currentColor" strokeDasharray="4" className="text-gray-200 dark:text-gray-800" strokeWidth="1" />
+                          {rects.map((r, idx) => (
+                              <rect key={idx} x={r.start} y="15" width={Math.max(r.width, 1)} height="70" rx="1" className="fill-blue-500 hover:fill-blue-400 transition-colors cursor-pointer shadow-sm" />
+                          ))}
+                      </svg>
+                      {/* Detailed X-Axis Labels */}
+                      <div className="absolute bottom-0 left-2 right-2 flex justify-between text-[10px] font-bold text-gray-400 pointer-events-none">
+                          {[...Array(25)].map((_, i) => (
+                              <span key={i} style={{ transform: 'translateX(-50%)' }}>
+                                  {i === 0 ? '12 AM' : i === 12 ? '12 PM' : i === 24 ? '11:59 PM' : `${i%12} ${i>=12 ? 'PM' : 'AM'}`}
+                              </span>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          );
+      } else {
+          // HOURS VIEW: 24 compact bars summarizing the day
+          return (
+              <div className="w-full h-32 relative">
+                   <svg viewBox="0 0 24 100" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-4 px-1 pb-6">
+                       <line x1="0" y1="50" x2="24" y2="50" stroke="currentColor" strokeDasharray="1" className="text-gray-200 dark:text-gray-800" strokeWidth="0.1" />
+                       {localStats.todayTimeline.map((val, i) => {
+                           const height = (Math.min(val, 60) / 60) * 80;
+                           const y = 95 - height; // Draw from the bottom up
+                           return (
+                               <rect key={i} x={i + 0.15} y={y} width="0.7" height={height || 0.5} rx="0.2" className="fill-blue-500 hover:fill-blue-400 transition-colors" />
+                           );
+                       })}
+                   </svg>
+                   <div className="absolute bottom-0 left-2 right-2 flex justify-between text-[10px] font-bold text-gray-400 pointer-events-none">
+                       <span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11:59 PM</span>
+                   </div>
+              </div>
+          );
+      }
   };
 
   return (
@@ -1244,23 +1339,21 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
                   <h2 className="text-sm font-bold w-32 text-center select-none uppercase tracking-wider">{getDayLabel()}</h2>
                   <button onClick={() => setDayOffset(d => Math.max(0, d - 1))} disabled={dayOffset === 0} className="p-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl hover:text-blue-500 disabled:opacity-30 transition-colors active:scale-90"><ChevronRight size={18} /></button>
                 </div>
+                
+                {/* NEW GRAPH TOGGLE */}
+                <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+                   <button onClick={() => setGraphMode('hours')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs font-bold rounded-lg transition-colors ${graphMode === 'hours' ? 'bg-white dark:bg-gray-700 text-blue-500 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Hours</button>
+                   <button onClick={() => setGraphMode('minutes')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs font-bold rounded-lg transition-colors ${graphMode === 'minutes' ? 'bg-white dark:bg-gray-700 text-blue-500 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Minutes</button>
+                </div>
+
                 <div className="text-right">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total</p>
-                  <p className="text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
+                  <p className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
                 </div>
               </div>
-              <div className="mt-6 w-full h-24 lg:h-48 relative -mx-1 flex-1">
-                <svg viewBox={`0 0 230 ${chartHeight}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
-                  <defs>
-                    <linearGradient id="colorActivity" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
-                  </defs>
-                  <line x1="0" y1="0" x2="230" y2="0" stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
-                  <line x1="0" y1={chartHeight/2} x2="230" y2={chartHeight/2} stroke="currentColor" strokeDasharray="4" className="text-gray-300 dark:text-gray-700" strokeWidth="1" />
-                  <line x1="0" y1={chartHeight} x2="230" y2={chartHeight} stroke="currentColor" className="text-gray-400 dark:text-gray-600" strokeWidth="1" />
-                  <path d={areaD} fill="url(#colorActivity)" />
-                  <path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="flex justify-between text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-2 px-1"><span>12A</span><span>6A</span><span>12P</span><span>6P</span><span>11P</span></div>
+              
+              <div className="mt-6 w-full relative -mx-1 flex-1">
+                 {renderGraph()}
               </div>
             </div>
 
