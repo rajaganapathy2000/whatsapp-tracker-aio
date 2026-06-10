@@ -1195,12 +1195,15 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
 
   // --- NEW SCROLLABLE GANTT GRAPH RENDERER ---
   const renderGraph = () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinuteOfDay = currentHour * 60 + now.getMinutes();
+
       if (graphMode === 'minutes') {
           // MINUTE VIEW: High detail 1440-minute scrollable ribbon
           const rects = [];
           let currentStart = null;
           
-          // Optimization: Group continuous active minutes into single wide blocks
           for(let i=0; i<1440; i++) {
               if(localStats.minuteTimeline[i] > 0 && currentStart === null) {
                   currentStart = i;
@@ -1211,42 +1214,117 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
           }
           if(currentStart !== null) rects.push({ start: currentStart, width: 1440 - currentStart });
 
+          const gridLines = [];
+          for (let i = 0; i <= 24; i++) {
+              const x = i * 120; // 60 mins * 2px
+              gridLines.push(
+                  <g key={`grid-${i}`}>
+                      <line x1={x} y1="0" x2={x} y2="85" stroke="currentColor" className="text-gray-200 dark:text-gray-800" strokeWidth="1" strokeDasharray="2" />
+                      <text x={x} y="100" fill="currentColor" className="text-[10px] font-bold text-gray-400 dark:text-gray-500" textAnchor="middle" style={{ userSelect: 'none' }}>
+                          {i === 0 ? '12 AM' : i === 12 ? '12 PM' : i === 24 ? '11:59 PM' : `${i%12} ${i>=12 ? 'PM' : 'AM'}`}
+                      </text>
+                  </g>
+              );
+          }
+
           return (
               <div className="overflow-x-auto scrollbar-hide pb-2 cursor-ew-resize">
                   {/* 2880px width = Exactly 2 pixels per minute for smooth scrolling detail */}
-                  <div className="min-w-[2880px] h-32 relative px-2">
-                      <svg viewBox="0 0 1440 100" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-4 pb-6">
-                          <line x1="0" y1="50" x2="1440" y2="50" stroke="currentColor" strokeDasharray="4" className="text-gray-200 dark:text-gray-800" strokeWidth="1" />
-                          {rects.map((r, idx) => (
-                              <rect key={idx} x={r.start} y="15" width={Math.max(r.width, 1)} height="70" rx="1" className="fill-blue-500 hover:fill-blue-400 transition-colors cursor-pointer shadow-sm" />
-                          ))}
+                  <div className="min-w-[2880px] h-36 relative px-4">
+                      <svg viewBox="0 0 2880 110" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-2 pb-2">
+                          <defs>
+                              <linearGradient id="minuteGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#06b6d4" />
+                                  <stop offset="100%" stopColor="#3b82f6" />
+                              </linearGradient>
+                          </defs>
+                          
+                          {/* Background Grid & Labels */}
+                          {gridLines}
+                          
+                          {/* Session Blocks */}
+                          {rects.map((r, idx) => {
+                              const x = r.start * 2;
+                              const w = Math.max(r.width * 2, 4); // Minimum width to be visible
+                              return (
+                                  <rect 
+                                      key={idx} 
+                                      x={x} 
+                                      y="15" 
+                                      width={w} 
+                                      height="60" 
+                                      rx="6" 
+                                      fill="url(#minuteGradient)" 
+                                      className="transition-all duration-300 hover:opacity-80"
+                                      style={{ filter: 'drop-shadow(0px 2px 4px rgba(59, 130, 246, 0.4))' }}
+                                  />
+                              );
+                          })}
+
+                          {/* Live Playhead (Current Time Indicator) */}
+                          {dayOffset === 0 && (
+                              <g transform={`translate(${currentMinuteOfDay * 2}, 0)`}>
+                                  <line x1="0" y1="0" x2="0" y2="85" stroke="#ef4444" strokeWidth="2" strokeDasharray="4" className="opacity-80" />
+                                  <circle cx="0" cy="15" r="4" fill="#ef4444" />
+                                  <circle cx="0" cy="15" r="10" fill="#ef4444" className="animate-ping" opacity="0.4" />
+                                  <rect x="-24" y="-12" width="48" height="16" rx="4" fill="#ef4444" />
+                                  <text x="0" y="-1" fill="white" className="text-[9px] font-bold" textAnchor="middle">NOW</text>
+                              </g>
+                          )}
                       </svg>
-                      {/* Detailed X-Axis Labels */}
-                      <div className="absolute bottom-0 left-2 right-2 flex justify-between text-[10px] font-bold text-gray-400 pointer-events-none">
-                          {[...Array(25)].map((_, i) => (
-                              <span key={i} style={{ transform: 'translateX(-50%)' }}>
-                                  {i === 0 ? '12 AM' : i === 12 ? '12 PM' : i === 24 ? '11:59 PM' : `${i%12} ${i>=12 ? 'PM' : 'AM'}`}
-                              </span>
-                          ))}
-                      </div>
                   </div>
               </div>
           );
       } else {
           // HOURS VIEW: 24 compact bars summarizing the day
           return (
-              <div className="w-full h-32 relative">
-                   <svg viewBox="0 0 24 100" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-4 px-1 pb-6">
-                       <line x1="0" y1="50" x2="24" y2="50" stroke="currentColor" strokeDasharray="1" className="text-gray-200 dark:text-gray-800" strokeWidth="0.1" />
+              <div className="w-full h-36 relative">
+                   <svg viewBox="0 0 24 110" preserveAspectRatio="none" className="w-full h-full overflow-visible pt-2 px-1 pb-2">
+                       <defs>
+                           <linearGradient id="hourGradient" x1="0" y1="0" x2="0" y2="1">
+                               <stop offset="0%" stopColor="#3b82f6" />
+                               <stop offset="100%" stopColor="#2563eb" />
+                           </linearGradient>
+                       </defs>
+
+                       {/* Horizontal Grid lines */}
+                       {[20, 40, 60, 80].map(y => (
+                           <line key={y} x1="0" y1={y} x2="24" y2={y} stroke="currentColor" strokeDasharray="0.5" className="text-gray-100 dark:text-gray-800/50" strokeWidth="0.1" />
+                       ))}
+
+                       {/* 24 Hour Bars */}
                        {localStats.todayTimeline.map((val, i) => {
-                           const height = (Math.min(val, 60) / 60) * 80;
-                           const y = 95 - height; // Draw from the bottom up
+                           const height = (Math.min(val, 60) / 60) * 70; // Max height 70px
+                           const y = 85 - height; // Draw from the bottom up (baseline 85)
+                           const isCurrentHour = dayOffset === 0 && i === currentHour;
+                           
                            return (
-                               <rect key={i} x={i + 0.15} y={y} width="0.7" height={height || 0.5} rx="0.2" className="fill-blue-500 hover:fill-blue-400 transition-colors" />
+                               <g key={i}>
+                                   {/* Subtle background track for each hour */}
+                                   <rect x={i + 0.15} y="15" width="0.7" height="70" rx="0.35" className="fill-gray-100 dark:fill-gray-800" opacity="0.5" />
+                                   
+                                   {/* Actual Data Bar */}
+                                   {height > 0 && (
+                                       <rect 
+                                           x={i + 0.15} 
+                                           y={y} 
+                                           width="0.7" 
+                                           height={height} 
+                                           rx="0.35" 
+                                           fill="url(#hourGradient)" 
+                                           className={`transition-all duration-500 hover:opacity-80 ${isCurrentHour ? 'animate-pulse' : ''}`}
+                                       />
+                                   )}
+
+                                   {/* Current Hour Indicator */}
+                                   {isCurrentHour && (
+                                        <circle cx={i + 0.5} cy="10" r="0.4" fill="#ef4444" className="animate-pulse" />
+                                   )}
+                               </g>
                            );
                        })}
                    </svg>
-                   <div className="absolute bottom-0 left-2 right-2 flex justify-between text-[10px] font-bold text-gray-400 pointer-events-none">
+                   <div className="absolute bottom-0 left-2 right-2 flex justify-between text-[10px] font-bold text-gray-400 pointer-events-none select-none">
                        <span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11:59 PM</span>
                    </div>
               </div>
@@ -1346,7 +1424,7 @@ const TargetDetailView = memo(function TargetDetailView({ target, isPrivacyMode,
                    <button onClick={() => setGraphMode('minutes')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs font-bold rounded-lg transition-colors ${graphMode === 'minutes' ? 'bg-white dark:bg-gray-700 text-blue-500 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Minutes</button>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right hidden sm:block">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total</p>
                   <p className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400">{localStats.totalTime}</p>
                 </div>
