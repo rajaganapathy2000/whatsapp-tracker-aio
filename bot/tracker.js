@@ -1698,8 +1698,12 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
                 process.exit(1);
             } else {
-                console.log('[WA-SOCKET] ❌ Logged out. The Web UI will now display a new QR Code.');
-                process.exit(1); // Exiting allows PM2 to restart the bot, which automatically generates the fresh QR code on reboot
+                console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
+                // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
+                if (fs.existsSync(AUTH_DIR)) {
+                    require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
+                }
+                process.exit(1); 
             }
         } else if (connection === 'open') {
             console.log('\n[WA-SOCKET] ✅ Connected successfully!');
@@ -2205,11 +2209,11 @@ async function main() {
                 await saveCloudConfig();
                 console.log("[SYS] ✅ Admin number saved.");
             } else if (answer.trim() === '5') {
-                if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                if (fs.existsSync(AUTH_DIR)) require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 useExistingAuth = false;
                 console.log("[SYS] 🗑️ Session cleared. You will be prompted to login when starting.");
             } else if (answer.trim() === '6') {
-                if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                if (fs.existsSync(AUTH_DIR)) require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
                 if (fs.existsSync(CONTACTS_FILE)) fs.unlinkSync(CONTACTS_FILE);
                 config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null };
