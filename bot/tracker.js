@@ -128,6 +128,15 @@ function parseTime(timeStr) {
     };
 }
 
+// --- DYNAMIC TELEGRAM API URL ROUTER ---
+function getTgApiUrl() {
+    if (config && config.tgProxy) {
+        // Strip trailing slash if the user accidentally included one
+        return config.tgProxy.replace(/\/$/, '');
+    }
+    return 'https://api.telegram.org';
+}
+
 // --- GLOBAL DASHBOARD RENDERER ---
 async function renderTrackLive(page) {
     const pageSize = 15;
@@ -284,6 +293,7 @@ async function loadCloudConfig() {
             if (!config.liveBoardOff) config.liveBoardOff = [];
             if (!config.github) config.github = null;
             if (!config.pusher) config.pusher = null;
+            if (config.tgProxy === undefined) config.tgProxy = null;
             
             initPusher(); // Re-initialize Pusher with loaded config
         } else {
@@ -482,11 +492,12 @@ async function setupTelegramCommands() {
         { command: 'update', description: 'Update bot from GitHub' },
         { command: 'rollback', description: 'Revert to previous code' },
         { command: 'ping', description: 'Check bot health and uptime' },
+        { command: 'setproxy', description: 'Set Telegram proxy link' },
         { command: 'exec', description: 'Run shell command' },
         { command: 'help', description: 'Show all commands' }
     ];
     try {
-        await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/setMyCommands`, {
+        await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/setMyCommands`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ commands })
@@ -503,7 +514,7 @@ async function sendTelegramDirect(text, replyMarkup = null) {
         try {
             const body = { chat_id: config.chatId, text: text };
             if (replyMarkup) body.reply_markup = replyMarkup;
-            const res = await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            const res = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
@@ -522,7 +533,7 @@ async function editTelegramMessage(messageId, text, replyMarkup = null) {
         try {
             const body = { chat_id: config.chatId, message_id: messageId, text: text };
             if (replyMarkup) body.reply_markup = replyMarkup;
-            const response = await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/editMessageText`, {
+            const response = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/editMessageText`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
@@ -545,7 +556,7 @@ async function editTelegramMessage(messageId, text, replyMarkup = null) {
 async function deleteTelegramMessage(messageId) {
     if (config && config.botToken && config.chatId && messageId) {
         try {
-            await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/deleteMessage`, {
+            await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_id: config.chatId, message_id: messageId })
@@ -600,7 +611,7 @@ async function runAutoWipe() {
         for (let i = 0; i < allIds.length; i += 100) {
             const chunk = allIds.slice(i, i + 100);
             try {
-                await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/deleteMessages`, {
+                await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessages`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chat_id: config.chatId, message_ids: chunk })
                 });
@@ -780,7 +791,7 @@ async function sendTelegramDocument() {
         const formData = new FormData();
         formData.append('chat_id', config.chatId);
         formData.append('document', blob, 'WhatsApp_Tracking_Report.csv');
-        await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/sendDocument`, {
+        await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/sendDocument`, {
             method: 'POST',
             body: formData
         });
@@ -1012,6 +1023,21 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 reply(`🗑️ Removed ${getContactName(num)} from tracking list.`);
             } else {
                 reply(`⚠️ ${num} is not in the tracking list.`);
+            }
+        }
+        else if (command === '/setproxy') {
+            if (!args[1]) return reply("⚠️ Usage: /setproxy <link>\nTo remove: /setproxy default");
+            const proxyLink = args[1].trim();
+            
+            if (proxyLink.toLowerCase() === 'default') {
+                config.tgProxy = null;
+                await saveCloudConfig();
+                reply("✅ Telegram proxy disabled. Connection restored to default (api.telegram.org).");
+            } else {
+                if (!proxyLink.startsWith('http')) return reply("⚠️ Invalid proxy link. It must start with http:// or https://");
+                config.tgProxy = proxyLink;
+                await saveCloudConfig();
+                reply(`✅ Telegram Reverse Proxy successfully set to:\n${proxyLink}\n\nAll Telegram alerts and menus will now route through this URL, bypassing ISP blocks!`);
             }
         }
         else if (command === '/tracking' || command === '/status') {
@@ -1282,6 +1308,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
 /settings - Interactive Toggles
 /database - Clean up MongoDB
 /export - Get Excel file
+/setproxy <link> - Set Telegram reverse proxy
 /update - Pull code from GitHub
 /rollback - Revert to previous code
 /exec <cmd> - Remote Shell
@@ -1304,7 +1331,7 @@ async function processCallback(query, sock) {
     const msgId = query.message.message_id;
 
     try {
-        await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+        await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/answerCallbackQuery`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ callback_query_id: query.id })
         });
@@ -1519,7 +1546,7 @@ async function processCallback(query, sock) {
             const formData = new FormData();
             formData.append('chat_id', config.chatId);
             formData.append('document', blob, `${num || "Full"}_Report.csv`);
-            await fetchWithRetry(`https://api.telegram.org/bot${config.botToken}/sendDocument`, { method: 'POST', body: formData });
+            await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/sendDocument`, { method: 'POST', body: formData });
         }
     }
     else if (action === 'setgit') {
@@ -1595,7 +1622,7 @@ async function pollTelegramUpdates(sock) {
 
     if (!config || !config.botToken) return;
     try {
-        const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${tgOffset}&timeout=10`;
+        const url = `${getTgApiUrl()}/bot${config.botToken}/getUpdates?offset=${tgOffset}&timeout=10`;
         const res = await fetch(url);
         const data = await res.json();
         if (data.ok && data.result.length > 0) {
@@ -1698,12 +1725,12 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
                 process.exit(1);
             } else {
-                console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
-                // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
+                console.log('[WA-SOCKET] ❌ Logged out. Executing OS-level nuke on auth_info and restarting...');
+                // Force OS to delete the folder and wait until it is 100% gone
                 if (fs.existsSync(AUTH_DIR)) {
                     require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 }
-                process.exit(1); 
+                process.exit(1); // Now PM2 restarts it safely!
             }
         } else if (connection === 'open') {
             console.log('\n[WA-SOCKET] ✅ Connected successfully!');
@@ -2155,7 +2182,7 @@ async function main() {
 
     config = { 
         targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", 
-        chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: localConfig.mongoUri, snooze: {}, liveBoardOff: [], github: null, pusher: null 
+        chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: localConfig.mongoUri, snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null 
     };
 
     // Connect MongoDB Early
@@ -2191,7 +2218,8 @@ async function main() {
             console.log("5) 🔄 Re-Login (Scan QR/Pairing again)");
             console.log("6) 🗑️  Factory Reset (Clear All Data)");
             console.log("7) 🗄️ Edit MongoDB Connection URI");
-            const answer = await question("\nSelect an option (1-7): ");
+            console.log("8) 🌐 Set Telegram Reverse Proxy Link");
+            const answer = await question("\nSelect an option (1-8): ");
             if (answer.trim() === '1') exitMenu = true;
             else if (answer.trim() === '2') {
                 const input = await question("Enter new numbers to track (comma separated):\n> ");
@@ -2216,7 +2244,7 @@ async function main() {
                 if (fs.existsSync(AUTH_DIR)) require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
                 if (fs.existsSync(CONTACTS_FILE)) fs.unlinkSync(CONTACTS_FILE);
-                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null };
+                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null };
                 await saveCloudConfig();
                 await saveCloudContacts();
                 useExistingAuth = false;
@@ -2227,6 +2255,18 @@ async function main() {
                 fs.writeFileSync(CONFIG_FILE, JSON.stringify({ mongoUri: config.mongoUri }, null, 2));
                 console.log("[SYS] ✅ MongoDB URI saved locally.");
                 await connectMongo(); // Reconnect immediately after saving
+            } else if (answer.trim() === '8') {
+                const input = await question("Enter Cloudflare Worker Proxy URL (or type 'default' to clear):\n> ");
+                const url = input.trim();
+                if (url.toLowerCase() === 'default') {
+                    config.tgProxy = null;
+                    await saveCloudConfig();
+                    console.log("[SYS] ✅ Proxy cleared. Using default api.telegram.org");
+                } else {
+                    config.tgProxy = url;
+                    await saveCloudConfig();
+                    console.log("[SYS] ✅ Proxy saved!");
+                }
             } else console.log("[SYS] ⚠️ Invalid option.");
         }
     }
