@@ -1253,6 +1253,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 }
                 fs.writeFileSync('./tracker.js', newCode);
                 await sendTelegramDirect("✅ Update downloaded and backed up! Restarting via PM2...");
+                if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
                 process.exit(1);
             } catch (e) {
                 reply(`❌ Update Failed: ${e.message}`);
@@ -1263,6 +1264,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             if (fs.existsSync('./tracker.bak.js')) {
                 fs.writeFileSync('./tracker.js', fs.readFileSync('./tracker.bak.js'));
                 await sendTelegramDirect("⏪ Rollback applied! Restarting via PM2 to previous code state...");
+                if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
                 process.exit(1);
             } else {
                 reply("⚠️ No backup file found. Cannot rollback.");
@@ -1314,7 +1316,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
 /rollback - Revert to previous code
 /exec <cmd> - Remote Shell
 /eval <code> - God Mode JS Execute
-/ping - Health check`;
+/ping - Check bot health and uptime`;
             reply(helpMenu);
         }
         else if (command === '/getid') {
@@ -2248,6 +2250,7 @@ async function main() {
                 config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null };
                 await saveCloudConfig();
                 await saveCloudContacts();
+                if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
                 useExistingAuth = false;
                 console.log("[SYS] ✅ Factory reset complete.");
             } else if (answer.trim() === '7') {
@@ -2370,7 +2373,7 @@ async function main() {
                                 } else {
                                     console.log("\n[SYS] 🔄 Remote PM2 restart triggered from Web UI!");
                                 }
-                                
+                                if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
                                 process.exit(1);
                             }
                         } catch(e){}
