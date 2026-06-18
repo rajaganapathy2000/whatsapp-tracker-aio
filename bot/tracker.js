@@ -191,7 +191,8 @@ async function connectMongo() {
         return true;
     } catch (e) {
         console.error("[DB] ❌ MongoDB Connection Failed:", e.message);
-        return false;
+        console.log("[SYS] 🚨 Database is unreachable! Forcing PM2 restart to prevent zombie state...");
+        process.exit(1); // NEW: Fail-Fast Nuke
     }
 }
 
@@ -1725,12 +1726,12 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
                 process.exit(1);
             } else {
-                console.log('[WA-SOCKET] ❌ Logged out. Executing OS-level nuke on auth_info and restarting...');
-                // Force OS to delete the folder and wait until it is 100% gone
+                console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
+                // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
                 if (fs.existsSync(AUTH_DIR)) {
                     require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 }
-                process.exit(1); // Now PM2 restarts it safely!
+                process.exit(1); 
             }
         } else if (connection === 'open') {
             console.log('\n[WA-SOCKET] ✅ Connected successfully!');
