@@ -1671,9 +1671,9 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false, // Disables the annoying yellow warning
-        browser: ['Windows', 'Chrome', '120.0.0'], // Safe browser string to prevent instant drops
-        syncFullHistory: true, // FORCE FETCH ENTIRE ADDRESS BOOK (FIX FOR 400+ CONTACTS)
-        markOnlineOnConnect: true // Force online status to receive presence updates in Termux
+        browser: Browsers.macOS('Desktop'), // NEW: Uses Baileys official stealth signature to bypass 428 blocks
+        syncFullHistory: true, 
+        markOnlineOnConnect: true 
     };
     
     const sock = makeWASocket(sockOptions);
