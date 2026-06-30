@@ -1669,6 +1669,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     const sockOptions = {
         version,
         auth: state,
+        printQRInTerminal: loginMethod === 'qr', 
         logger: pino({ level: 'silent' }),
         syncFullHistory: true, // FORCE FETCH ENTIRE ADDRESS BOOK (FIX FOR 400+ CONTACTS)
         markOnlineOnConnect: true // Force online status to receive presence updates in Termux
@@ -1721,19 +1722,18 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
         }
         
         if (connection === 'close') {
-            const isLoggedOut = lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
-            const isUnregistered = !sock.authState.creds.registered;
-            
-            if (isLoggedOut || isUnregistered) {
-                console.log('\n[WA-SOCKET] ❌ Session invalid, timed out, or logged out. Wiping credentials...');
-                if (fs.existsSync(AUTH_DIR)) {
-                    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-                }
-                console.log('[WA-SOCKET] 🔄 Restarting via PM2 to generate a fresh QR code...');
-                setTimeout(() => process.exit(1), 2000); 
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('\n[WA-SOCKET] ⚠️ Connection closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) {
+                console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
+                process.exit(1);
             } else {
-                console.log('\n[WA-SOCKET] ⚠️ Connection dropped (Network Issue). Restarting via PM2 in 5 seconds...');
-                setTimeout(() => process.exit(1), 5000);
+                console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
+                // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
+                if (fs.existsSync(AUTH_DIR)) {
+                    require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
+                }
+                process.exit(1); 
             }
         } else if (connection === 'open') {
             console.log('\n[WA-SOCKET] ✅ Connected successfully!');
