@@ -1284,7 +1284,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
         else if (command === '/ping') {
             // NEW: Use Immortal Uptime tracker logic
             const uptime = formatUptime(Date.now() - globalBotStartTime);
-            reply(`🏓 Pong! Bot is healthy.\n⏱️ Uptime: ${uptime}\n📡 Tracking: ${config.targets.length} numbers.`);
+            reply(`🏓 Pong! Bot is healthy.\n⏱️ Uptime: ${uptime}\n📡 Tracking: ${config.targets.length} contacts.`);
         }
         else if (command === '/exec') {
             if (args.length < 2) return reply("⚠️ Usage: /exec <cmd>");
@@ -1295,7 +1295,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             });
         }
         else if (command === '/help') {
-            const helpMenu = `🤖 *WhatsApp Tracker Bot Commands* 🤖\n
+            const helpMenu = `🤖 *Bot Commands* 🤖\n
 🎯 *Tracking*
 /start - Welcome message & status
 /tracking - Interactive Dashboard
