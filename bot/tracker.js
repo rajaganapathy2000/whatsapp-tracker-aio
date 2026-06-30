@@ -1669,18 +1669,12 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     const sockOptions = {
         version,
         auth: state,
-        printQRInTerminal: loginMethod === 'qr', 
         logger: pino({ level: 'silent' }),
+        printQRInTerminal: false, // Disables the annoying yellow warning
+        browser: ['Windows', 'Chrome', '120.0.0'], // Safe browser string to prevent instant drops
         syncFullHistory: true, // FORCE FETCH ENTIRE ADDRESS BOOK (FIX FOR 400+ CONTACTS)
         markOnlineOnConnect: true // Force online status to receive presence updates in Termux
     };
-    
-    // Use official Baileys browser strings to prevent Termux shadowbans
-    if (loginMethod === 'pairing') {
-        sockOptions.browser = Browsers.macOS('Desktop');
-    } else {
-        sockOptions.browser = Browsers.macOS('Desktop');
-    }
     
     const sock = makeWASocket(sockOptions);
     globalSock = sock; 
@@ -1722,11 +1716,15 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
         }
         
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('\n[WA-SOCKET] ⚠️ Connection closed. Reconnecting:', shouldReconnect);
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const errorMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error) || 'Unknown Network Error';
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            console.log(`\n[WA-SOCKET] ⚠️ Connection closed. Reason: ${errorMsg} (Code: ${statusCode})`);
+            
             if (shouldReconnect) {
-                console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Reconnecting internally...');
-                setTimeout(() => connectToWhatsApp(loginMethod, loginNumber), 2000);
+                console.log('[WA-SOCKET] ⏳ Reconnecting internally in 4 seconds to prevent WhatsApp spam blocks...');
+                setTimeout(() => connectToWhatsApp(loginMethod, loginNumber), 4000);
             } else {
                 console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
                 // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
