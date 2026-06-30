@@ -1677,9 +1677,9 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     
     // Use official Baileys browser strings to prevent Termux shadowbans
     if (loginMethod === 'pairing') {
-        sockOptions.browser = Browsers.macOS('Desktop');
+        sockOptions.browser = Browsers.ubuntu('Chrome');
     } else {
-        sockOptions.browser = Browsers.macOS('Desktop');
+        sockOptions.browser = Browsers.ubuntu('Chrome');
     }
     
     const sock = makeWASocket(sockOptions);
