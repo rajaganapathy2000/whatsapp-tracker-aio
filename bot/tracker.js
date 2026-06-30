@@ -1725,8 +1725,8 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('\n[WA-SOCKET] ⚠️ Connection closed. Reconnecting:', shouldReconnect);
             if (shouldReconnect) {
-                console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
-                process.exit(1);
+                console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Reconnecting internally...');
+                setTimeout(() => connectToWhatsApp(loginMethod, loginNumber), 2000);
             } else {
                 console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
                 // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
