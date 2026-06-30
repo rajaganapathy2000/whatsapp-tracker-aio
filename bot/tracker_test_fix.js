@@ -1678,9 +1678,9 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     // Use official Baileys browser strings to prevent Termux shadowbans
     // Kept macOS Desktop as it prevents "bad mac" connection errors on certain numbers!
     if (loginMethod === 'pairing') {
-        sockOptions.browser = Browsers.macOS('Desktop');
+        sockOptions.browser = Browsers.ubuntu('Chrome'); // Changed strictly for Pairing Code to bypass Error 428!
     } else {
-        sockOptions.browser = Browsers.macOS('Desktop');
+        sockOptions.browser = Browsers.macOS('Desktop'); // Kept macOS for QR to prevent "bad mac" errors
     }
     
     const sock = makeWASocket(sockOptions);
@@ -1713,14 +1713,19 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             } else if (loginMethod === 'pairing' && !sock.authState.creds.registered && !pairingCodeRequested) {
                 // Only request pairing code AFTER the connection is fully open and waiting for auth
                 pairingCodeRequested = true;
-                console.log('\n[WA-AUTH] ⏳ Connection open. Requesting pairing code...');
-                try {
-                    const code = await sock.requestPairingCode(loginNumber);
-                    console.log(`\n[WA-AUTH] 🔑 YOUR PAIRING CODE IS: ${code.match(/.{1,4}/g)?.join('-')} \n`);
-                    console.log('[WA-AUTH] 📱 Open WhatsApp on your phone -> Linked Devices -> Link a device -> Use phone number instead.');
-                } catch (err) {
-                    console.error('[WA-AUTH] ❌ Failed to request pairing code:', err.message);
-                }
+                console.log('\n[WA-AUTH] ⏳ Connection open. Waiting 2 seconds for network stabilization...');
+                
+                // Added 2-second micro-delay so Termux locks the connection before asking for the 8-digit code
+                setTimeout(async () => {
+                    console.log('[WA-AUTH] 🔑 Requesting pairing code...');
+                    try {
+                        const code = await sock.requestPairingCode(loginNumber);
+                        console.log(`\n[WA-AUTH] 🔑 YOUR PAIRING CODE IS: ${code.match(/.{1,4}/g)?.join('-')} \n`);
+                        console.log('[WA-AUTH] 📱 Open WhatsApp on your phone -> Linked Devices -> Link a device -> Use phone number instead.');
+                    } catch (err) {
+                        console.error('[WA-AUTH] ❌ Failed to request pairing code:', err.message);
+                    }
+                }, 2000);
             }
         }
         
