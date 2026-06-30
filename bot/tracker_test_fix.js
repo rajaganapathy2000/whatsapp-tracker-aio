@@ -1672,16 +1672,9 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
         printQRInTerminal: false, // Turned off to prevent Baileys deprecation warning, we print it manually below!
         logger: pino({ level: 'silent' }),
         syncFullHistory: true, // FORCE FETCH ENTIRE ADDRESS BOOK (FIX FOR 400+ CONTACTS)
-        markOnlineOnConnect: true // Force online status to receive presence updates in Termux
+        markOnlineOnConnect: true, // Force online status to receive presence updates in Termux
+        browser: Browsers.ubuntu('Chrome') // FORCE UBUNTU/CHROME FOR ALL CONNECTIONS TO BYPASS 428 FIREWALL
     };
-    
-    // Use official Baileys browser strings to prevent Termux shadowbans
-    // Kept macOS Desktop as it prevents "bad mac" connection errors on certain numbers!
-    if (loginMethod === 'pairing') {
-        sockOptions.browser = Browsers.ubuntu('Chrome'); // Changed strictly for Pairing Code to bypass Error 428!
-    } else {
-        sockOptions.browser = Browsers.macOS('Desktop'); // Kept macOS for QR to prevent "bad mac" errors
-    }
     
     const sock = makeWASocket(sockOptions);
     globalSock = sock; 
