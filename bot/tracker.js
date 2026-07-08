@@ -1956,6 +1956,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 let dbMergedCount = 0;
                 let tgMergedCount = 0;
                 let tgMergedNow = false;
+                let mergedDropsList = []; // Array to store merged timestamps
 
                 const dropMemory = pendingDrops[targetNumber];
                 if (dropMemory) {
@@ -1974,6 +1975,17 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                             tgMergedNow = true;
                             tgStart = dropMemory.tgOriginalStart;
                             tgMergedCount = dropMemory.tgMergedCount + 1;
+                            
+                            // Restore previously accumulated drop list for this session
+                            mergedDropsList = dropMemory.mergedDropsList || []; 
+                            
+                            // Format the current drop: HH:MM:SS AM to HH:MM:SS AM (X secs)
+                            const dropStartStr = new Date(dropMemory.offlineEpoch).toLocaleTimeString();
+                            const dropEndStr = now.toLocaleTimeString();
+                            const dropSecs = Math.floor(offlineDurationMs / 1000);
+                            
+                            mergedDropsList.push(`${dropStartStr} to ${dropEndStr} (${dropSecs} secs)`);
+
                             if (dropMemory.tgMsgId) await deleteTelegramMessage(dropMemory.tgMsgId);
                         }
                     }
@@ -1996,7 +2008,8 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                         onlineStartTime: dbStart,
                         tgOnlineStartTime: tgStart,
                         dbMergedCount: dbMergedCount,
-                        tgMergedCount: tgMergedCount 
+                        tgMergedCount: tgMergedCount,
+                        mergedDropsList: mergedDropsList // Save the array to the cloud
                     } }, 
                     { upsert: true }
                 );
@@ -2094,11 +2107,15 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                         const durationStr = `${diffMins} mins : ${diffSecs} secs`;
                         
                         let mergedNote = "";
-                        if (config.mergeTelegramDrops && pendingDoc.tgMergedCount > 0) {
-                            mergedNote = `\n*(Note: Timings merged due to network drops)*`;
+                        // Format the new detailed list if drops were merged!
+                        if (config.mergeTelegramDrops && pendingDoc.mergedDropsList && pendingDoc.mergedDropsList.length > 0) {
+                            mergedNote = `\n\nMerged Micro-Drops:\n\n` + pendingDoc.mergedDropsList.map(drop => ` - ${drop}`).join('\n');
+                        } else if (config.mergeTelegramDrops && pendingDoc.tgMergedCount > 0) {
+                            mergedNote = `\n*(Note: Timings merged due to network drops)*`; // Fallback
                         }
 
-                        const alertText = `🔴 ${displayName} went OFFLINE at ${offlineTimeStr}\n⏱ Duration: ${durationStr}${mergedNote}`;
+                        // Updated "Online Duration" string format
+                        const alertText = `🔴 ${displayName} went OFFLINE at ${offlineTimeStr}\n⏱ Online Duration: ${durationStr}${mergedNote}`;
                         const alertRes = await sendGlobalAlert(alertText); // Captures TG Message ID
                         if (alertRes && alertRes.result) {
                             tgMsgId = alertRes.result.message_id;
@@ -2119,6 +2136,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                     tgOriginalStart: pendingDoc.tgOnlineStartTime || pendingDoc.onlineStartTime,
                     dbMergedCount: pendingDoc.dbMergedCount || 0,
                     tgMergedCount: pendingDoc.tgMergedCount || 0,
+                    mergedDropsList: pendingDoc.mergedDropsList || [], // Pass the array down just in case they drop AGAIN
                     dbRecordId: dbRecordId,
                     tgMsgId: tgMsgId
                 };
