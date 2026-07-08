@@ -62,6 +62,9 @@ let menuMessageMap = {};
 // Active Live Dashboard Tracker (For 5-sec auto-update state matching)
 let activeLiveDashboard = { msgId: null, page: 0, lastText: "" };
 
+// NEW: Session Accumulator "Waiting Room" Memory
+let pendingDrops = {}; 
+
 function getShortId(num) {
     for(let key in btnSessionMap) if(btnSessionMap[key] === num) return key;
     const id = 'B' + Math.random().toString(36).substring(2, 7);
@@ -213,14 +216,14 @@ async function loadCloudUptime() {
 }
 
 async function updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs) {
-    if (!db) return;
+    if (!db) return null;
     try {
         const collection = db.collection(targetNumber);
         const dateStr = getFormattedDate(onlineDateObj);
         const onlineTimeStr = getFormattedTime(onlineDateObj);
         const offlineTimeStr = getFormattedTime(offlineDateObj);
 
-        await collection.insertOne({
+        const res = await collection.insertOne({
             number: targetNumber,
             date: dateStr,
             onlineTime: onlineTimeStr,
@@ -228,8 +231,10 @@ async function updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, di
             durationMs: diffMs,
             timestamp: onlineDateObj.getTime()
         });
+        return res.insertedId; // Returns the specific ID so we can delete it if they reconnect
     } catch (err) {
         console.error("[DB] ❌ Failed to log session to MongoDB:", err.message);
+        return null;
     }
 }
 
@@ -575,10 +580,12 @@ async function sendWhatsAppDirect(text) {
     }
 }
 
-// Global Alert: Respects Platform Mute Settings
+// Global Alert: Respects Platform Mute Settings, updated to return Telegram response
 async function sendGlobalAlert(text) {
-    if (config.enableTelegram) await sendTelegramDirect(text);
+    let tgRes = null;
+    if (config.enableTelegram) tgRes = await sendTelegramDirect(text);
     if (config.enableWhatsApp) await sendWhatsAppDirect(text);
+    return tgRes;
 }
 
 // BOUNDED 1 AM AUTO WIPE LOGIC
@@ -1078,6 +1085,8 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 inline_keyboard: [
                     [{ text: `✈️ TG Alerts: ${config.enableTelegram ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_tg` }],
                     [{ text: `📱 WA Alerts: ${config.enableWhatsApp ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_wa` }],
+                    [{ text: `🔗 TG Merge Drops: ${config.mergeTelegramDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mtg` }],
+                    [{ text: `🗄️ DB Merge Drops: ${config.mergeDatabaseDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mdb` }],
                     [{ text: `🌙 DND Mode: ${config.dnd ? 'ACTIVE' : 'OFF'}`, callback_data: `set_dnd` }],
                     [{ text: `⚡ Setup Pusher (Real-Time UI) ${isPusherSet ? '🟢' : ''}`, callback_data: `setpusher` }],
                     [{ text: "🛠️ Setup GitHub Update", callback_data: `setgit` }],
@@ -1564,6 +1573,8 @@ async function processCallback(query, sock) {
         const toggle = parts[1];
         if (toggle === 'tg') config.enableTelegram = !config.enableTelegram;
         if (toggle === 'wa') config.enableWhatsApp = !config.enableWhatsApp;
+        if (toggle === 'mtg') config.mergeTelegramDrops = !config.mergeTelegramDrops;
+        if (toggle === 'mdb') config.mergeDatabaseDrops = !config.mergeDatabaseDrops;
         if (toggle === 'dnd') {
             if (config.dnd) config.dnd = null;
             else { sendTelegramDirect("Use `/dnd HH:MM HH:MM` to set quiet hours."); return; }
@@ -1575,6 +1586,8 @@ async function processCallback(query, sock) {
             inline_keyboard: [
                 [{ text: `✈️ TG Alerts: ${config.enableTelegram ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_tg` }],
                 [{ text: `📱 WA Alerts: ${config.enableWhatsApp ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_wa` }],
+                [{ text: `🔗 TG Merge Drops: ${config.mergeTelegramDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mtg` }],
+                [{ text: `🗄️ DB Merge Drops: ${config.mergeDatabaseDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mdb` }],
                 [{ text: `🌙 DND Mode: ${config.dnd ? 'ACTIVE' : 'OFF'}`, callback_data: `set_dnd` }],
                 [{ text: `⚡ Setup Pusher (Real-Time UI) ${isPusherSet ? '🟢' : ''}`, callback_data: `setpusher` }],
                 [{ text: "🛠️ Setup GitHub Update", callback_data: `setgit` }],
@@ -1936,20 +1949,57 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             const pendingDoc = await pendingCol.findOne({ _id: targetNumber });
 
             if (!pendingDoc) {
-                // New Session - Write start time to Cloud Database
+                // New Session - Checking for micro-drop merge
                 const now = new Date();
+                let dbStart = now.getTime();
+                let tgStart = now.getTime();
+                let dbMergedCount = 0;
+                let tgMergedCount = 0;
+                let tgMergedNow = false;
+
+                const dropMemory = pendingDrops[targetNumber];
+                if (dropMemory) {
+                    const gracePeriodMs = (config.dropGracePeriodSeconds || 15) * 1000;
+                    const offlineDurationMs = now.getTime() - dropMemory.offlineEpoch;
+
+                    if (offlineDurationMs <= gracePeriodMs) {
+                        // MERGE DB if enabled
+                        if (config.mergeDatabaseDrops) {
+                            dbStart = dropMemory.dbOriginalStart;
+                            dbMergedCount = dropMemory.dbMergedCount + 1;
+                            if (dropMemory.dbRecordId && db) await db.collection(targetNumber).deleteOne({ _id: dropMemory.dbRecordId });
+                        }
+                        // MERGE TG if enabled
+                        if (config.mergeTelegramDrops) {
+                            tgMergedNow = true;
+                            tgStart = dropMemory.tgOriginalStart;
+                            tgMergedCount = dropMemory.tgMergedCount + 1;
+                            if (dropMemory.tgMsgId) await deleteTelegramMessage(dropMemory.tgMsgId);
+                        }
+                    }
+                    delete pendingDrops[targetNumber]; // Always clear the memory
+                }
                 
                 // 🚀 MOVED UP: PUSHER REAL-TIME TRIGGER (Instant UI - Zero Latency)
                 if (pusherClient) {
                     pusherClient.trigger("whatsapp-tracker", "status-change", {
                         number: targetNumber,
                         status: "online",
-                        timestamp: now.getTime()
+                        timestamp: dbStart // Send the DB start time so UI reflects the raw/merged DB logic
                     }).catch(e => console.error("[PUSHER] ⚠️ Trigger failed:", e.message));
                 }
                 
                 // Now do the heavy MongoDB saving in background...
-                await pendingCol.updateOne({ _id: targetNumber }, { $set: { onlineStartTime: now.getTime() } }, { upsert: true });
+                await pendingCol.updateOne(
+                    { _id: targetNumber }, 
+                    { $set: { 
+                        onlineStartTime: dbStart,
+                        tgOnlineStartTime: tgStart,
+                        dbMergedCount: dbMergedCount,
+                        tgMergedCount: tgMergedCount 
+                    } }, 
+                    { upsert: true }
+                );
 
                 activeSessions[targetNumber].isOnline = true; // Local tracker
                 const timeStr = now.toLocaleTimeString();
@@ -1958,7 +2008,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
 
                 // --- NEW OFFLINE DURATION LOGIC ---
                 let offlineDurationStr = "";
-                if (db) {
+                if (db && !tgMergedNow) {
                     try {
                         const lastRecord = await db.collection(targetNumber).find().sort({ timestamp: -1 }).limit(1).toArray();
                         if (lastRecord.length > 0) {
@@ -1974,11 +2024,15 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 }
                 // ----------------------------------
 
-                console.log(`[WA-PRESENCE] [${timeStr}] 🟢 ${displayName} is ONLINE${offlineDurationStr.replace('\n', ' - ')}`);
+                if (!tgMergedNow) {
+                    console.log(`[WA-PRESENCE] [${timeStr}] 🟢 ${displayName} is ONLINE${offlineDurationStr.replace('\n', ' - ')}`);
+                } else {
+                    console.log(`[WA-PRESENCE] [${timeStr}] 🟢 ${displayName} is ONLINE (Micro-drop ignored/merged)`);
+                }
                 
                 // Restore individual alerts for unmuted targets while keeping Live Scoreboard
                 if (!isDndActive()) {
-                    if (!config.muted.includes(targetNumber)) {
+                    if (!config.muted.includes(targetNumber) && !tgMergedNow) {
                         const alertText = `🟢 ${displayName} is ONLINE at ${timeStr}${offlineDurationStr}`;
                         sendGlobalAlert(alertText);
                         if (config.enableWhatsApp && config.waNotify) {
@@ -2006,8 +2060,12 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 
                 // Session Ended - Calculate off Cloud Start Time
                 activeSessions[targetNumber].isOnline = false;
+                
                 const onlineDateObj = new Date(pendingDoc.onlineStartTime);
-                const diffMs = offlineDateObj - onlineDateObj;
+                const tgOnlineDateObj = new Date(pendingDoc.tgOnlineStartTime || pendingDoc.onlineStartTime);
+                
+                const diffMs = offlineDateObj - onlineDateObj; // For DB
+                const tgDiffMs = offlineDateObj - tgOnlineDateObj; // For Telegram (might be merged)
 
                 // --- SANITY CHECK (Ghost Session Fix) ---
                 if (diffMs > 24 * 60 * 60 * 1000) {
@@ -2020,19 +2078,32 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                 const offlineTimeStr = offlineDateObj.toLocaleTimeString();
                 console.log(`[WA-PRESENCE] [${offlineTimeStr}] 🔴 ${displayName} went OFFLINE.`);
                 
-                updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs); // MongoDB Append
+                // MongoDB Append - Capture the record ID for potential deletion later
+                const dbRecordId = await updateMongoReport(targetNumber, onlineDateObj, offlineDateObj, diffMs); 
                 await pendingCol.deleteOne({ _id: targetNumber }); // Clear Cloud Pending Session
                 
                 await updateInstantUIStatus(targetNumber); // Secretary Update
                 
+                let tgMsgId = null;
+
                 // Restore individual alerts for unmuted targets while keeping Live Scoreboard
                 if (!isDndActive()) {
                     if (!config.muted.includes(targetNumber)) {
-                        const diffMins = Math.floor(diffMs / 60000);
-                        const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                        const diffMins = Math.floor(tgDiffMs / 60000);
+                        const diffSecs = Math.floor((tgDiffMs % 60000) / 1000);
                         const durationStr = `${diffMins} mins : ${diffSecs} secs`;
-                        const alertText = `🔴 ${displayName} went OFFLINE at ${offlineTimeStr}\n⏱ Duration: ${durationStr}`;
-                        sendGlobalAlert(alertText);
+                        
+                        let mergedNote = "";
+                        if (config.mergeTelegramDrops && pendingDoc.tgMergedCount > 0) {
+                            mergedNote = `\n*(Note: Timings merged due to network drops)*`;
+                        }
+
+                        const alertText = `🔴 ${displayName} went OFFLINE at ${offlineTimeStr}\n⏱ Duration: ${durationStr}${mergedNote}`;
+                        const alertRes = await sendGlobalAlert(alertText); // Captures TG Message ID
+                        if (alertRes && alertRes.result) {
+                            tgMsgId = alertRes.result.message_id;
+                        }
+                        
                         if (config.enableWhatsApp && config.waNotify) {
                              const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                              await sock.sendMessage(selfJid, { text: alertText });
@@ -2040,6 +2111,17 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                     }
                     await updateLiveScoreboard(targetNumber);
                 }
+
+                // Add to Pending Drops "Waiting Room"
+                pendingDrops[targetNumber] = {
+                    offlineEpoch: offlineDateObj.getTime(),
+                    dbOriginalStart: pendingDoc.onlineStartTime,
+                    tgOriginalStart: pendingDoc.tgOnlineStartTime || pendingDoc.onlineStartTime,
+                    dbMergedCount: pendingDoc.dbMergedCount || 0,
+                    tgMergedCount: pendingDoc.tgMergedCount || 0,
+                    dbRecordId: dbRecordId,
+                    tgMsgId: tgMsgId
+                };
             }
         }
     });
@@ -2183,9 +2265,14 @@ async function main() {
          fs.writeFileSync(CONFIG_FILE, JSON.stringify({ mongoUri: localConfig.mongoUri }, null, 2));
     }
 
+    // Default configuration with new Session Accumulator settings
     config = { 
         targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", 
-        chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: localConfig.mongoUri, snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null 
+        chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: localConfig.mongoUri, 
+        snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null,
+        mergeTelegramDrops: true, // TG clean by default
+        mergeDatabaseDrops: false, // DB raw by default
+        dropGracePeriodSeconds: 15
     };
 
     // Connect MongoDB Early
@@ -2247,7 +2334,7 @@ async function main() {
                 if (fs.existsSync(AUTH_DIR)) require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
                 if (fs.existsSync(CONTACTS_FILE)) fs.unlinkSync(CONTACTS_FILE);
-                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null };
+                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null, mergeTelegramDrops: true, mergeDatabaseDrops: false, dropGracePeriodSeconds: 15 };
                 await saveCloudConfig();
                 await saveCloudContacts();
                 if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
