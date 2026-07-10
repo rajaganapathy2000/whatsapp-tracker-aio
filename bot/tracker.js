@@ -562,22 +562,17 @@ async function editTelegramMessage(messageId, text, replyMarkup = null) {
     return false;
 }
 
-async function deleteTelegramMessage(messageId, explicitChatId = null) {
-    const targetChatId = explicitChatId || (config ? config.chatId : null);
-    if (config && config.botToken && targetChatId && messageId) {
+async function deleteTelegramMessage(messageId) {
+    if (config && config.botToken && config.chatId && messageId) {
         try {
             const res = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: targetChatId, message_id: Number(messageId) })
+                body: JSON.stringify({ chat_id: config.chatId, message_id: messageId })
             });
             const data = await res.json();
             if (!data.ok) {
-                // Silencer: Ignore expected "message not found" errors so logs stay clean
-                const errDesc = data.description.toLowerCase();
-                if (!errDesc.includes("message can't be deleted") && !errDesc.includes("message to delete not found")) {
-                    console.error(`[TG-API-ERROR] Failed to delete message ${messageId}. Error: ${data.description}`);
-                }
+                console.error(`[TG-API-ERROR] Failed to delete message ${messageId}. Error: ${data.description}`);
             }
         } catch (err) { console.error("[TG-API] ⚠️ Failed to delete message:", err.message); }
     }
@@ -610,8 +605,8 @@ async function runAutoWipe() {
             return;
         }
 
-        let id_from_del = Number(doc.id_from_del);
-        let id_to_del = Number(doc.id_to_del);
+        let id_from_del = doc.id_from_del;
+        let id_to_del = doc.id_to_del;
 
         // Failsafe limit to prevent Telegram API abuse just in case the gap is massive
         if (id_to_del - id_from_del > 2000) id_from_del = id_to_del - 2000;
@@ -619,15 +614,32 @@ async function runAutoWipe() {
 
         console.log(`[SYS] 🧹 Running Auto-Wipe strictly between IDs ${id_from_del} and ${id_to_del}...`);
         
-        // Use individual loops. Bulk deleteMessages fails entirely if any message in the chunk is older than 48 hours.
-        let processCount = 0;
+        // "delete messages inbetween"
+        let allIds = [];
+        // We start at id_from_del (yesterday's ghost) and go up to id_to_del - 1.
+        // This leaves id_to_del (today's ghost message) alone, keeping at least 1 message in the chat.
         for (let i = id_from_del; i < id_to_del; i++) {
-            deleteTelegramMessage(i); // Fire without await to prevent massive blocking
-            await new Promise(r => setTimeout(r, 40)); // Throttle to ~25 msgs/sec
-            processCount++;
+            allIds.push(i);
         }
-        
-        console.log(`[SYS] ✅ Auto-Wipe completed. Fired ${processCount} deletion requests.`);
+
+        // Delete in batches of 100
+        for (let i = 0; i < allIds.length; i += 100) {
+            const chunk = allIds.slice(i, i + 100);
+            try {
+                const res = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessages`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: config.chatId, message_ids: chunk })
+                });
+                const data = await res.json();
+                if (!data.ok) {
+                    console.error(`[TG-WIPE-ERROR] Telegram refused to delete chunk from ${chunk[0]} to ${chunk[chunk.length-1]}. Error: ${data.description}`);
+                }
+                await new Promise(r => setTimeout(r, 600)); // Rate limit protection
+            } catch (e) {
+                console.error(`[TG-WIPE-ERROR] Request failed: ${e.message}`);
+            }
+        }
+        console.log(`[SYS] ✅ Auto-Wipe completed successfully.`);
     } catch (e) {
         console.error(`[SYS] ❌ Auto-Wipe Error:`, e.message);
     }
@@ -1436,11 +1448,9 @@ async function processCallback(query, sock) {
     if (action === 'close') {
         const botMsgId = msgId;
         const userMsgId = menuMessageMap[botMsgId];
-        const chatId = query.message.chat.id; // Explicitly capture Chat ID from the button
-
-        await deleteTelegramMessage(botMsgId, chatId);
+        await deleteTelegramMessage(botMsgId);
         if (userMsgId) {
-            await deleteTelegramMessage(userMsgId, chatId);
+            await deleteTelegramMessage(userMsgId);
             delete menuMessageMap[botMsgId];
         }
         if (activeLiveDashboard.msgId === botMsgId) {
