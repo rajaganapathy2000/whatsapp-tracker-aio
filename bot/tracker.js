@@ -497,6 +497,9 @@ async function setupTelegramCommands() {
         { command: 'unmuteall', description: 'Restore all notifications' },
         { command: 'update', description: 'Update bot from GitHub' },
         { command: 'rollback', description: 'Revert to previous code' },
+        { command: 'logs', description: 'View live bot console logs' },
+        { command: 'addanchorid', description: 'Set wipe boundaries' },
+        { command: 'forceclear', description: 'Trigger Telegram chat wipe now' },
         { command: 'ping', description: 'Check bot health and uptime' },
         { command: 'setproxy', description: 'Set Telegram proxy link' },
         { command: 'exec', description: 'Run shell command' },
@@ -562,11 +565,15 @@ async function editTelegramMessage(messageId, text, replyMarkup = null) {
 async function deleteTelegramMessage(messageId) {
     if (config && config.botToken && config.chatId && messageId) {
         try {
-            await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessage`, {
+            const res = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_id: config.chatId, message_id: messageId })
             });
+            const data = await res.json();
+            if (!data.ok) {
+                console.error(`[TG-API-ERROR] Failed to delete message ${messageId}. Error: ${data.description}`);
+            }
         } catch (err) { console.error("[TG-API] ⚠️ Failed to delete message:", err.message); }
     }
 }
@@ -588,7 +595,7 @@ async function sendGlobalAlert(text) {
     return tgRes;
 }
 
-// BOUNDED 1 AM AUTO WIPE LOGIC
+// BOUNDED AUTO WIPE LOGIC (Updated with Advanced Error Tracking)
 async function runAutoWipe() {
     if (!db || !config.botToken || !config.chatId) return;
     try {
@@ -605,7 +612,7 @@ async function runAutoWipe() {
         if (id_to_del - id_from_del > 2000) id_from_del = id_to_del - 2000;
         if (id_to_del <= id_from_del) return;
 
-        console.log(`[SYS] 🧹 Running 1 AM Auto-Wipe strictly between IDs ${id_from_del} and ${id_to_del}...`);
+        console.log(`[SYS] 🧹 Running Auto-Wipe strictly between IDs ${id_from_del} and ${id_to_del}...`);
         
         // "delete messages inbetween"
         let allIds = [];
@@ -619,14 +626,20 @@ async function runAutoWipe() {
         for (let i = 0; i < allIds.length; i += 100) {
             const chunk = allIds.slice(i, i + 100);
             try {
-                await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessages`, {
+                const res = await fetchWithRetry(`${getTgApiUrl()}/bot${config.botToken}/deleteMessages`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chat_id: config.chatId, message_ids: chunk })
                 });
+                const data = await res.json();
+                if (!data.ok) {
+                    console.error(`[TG-WIPE-ERROR] Telegram refused to delete chunk from ${chunk[0]} to ${chunk[chunk.length-1]}. Error: ${data.description}`);
+                }
                 await new Promise(r => setTimeout(r, 600)); // Rate limit protection
-            } catch (e) {}
+            } catch (e) {
+                console.error(`[TG-WIPE-ERROR] Request failed: ${e.message}`);
+            }
         }
-        console.log(`[SYS] ✅ 1 AM Bounded Auto-Wipe completed successfully.`);
+        console.log(`[SYS] ✅ Auto-Wipe completed successfully.`);
     } catch (e) {
         console.error(`[SYS] ❌ Auto-Wipe Error:`, e.message);
     }
@@ -1279,6 +1292,58 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 reply("⚠️ No backup file found. Cannot rollback.");
             }
         }
+        else if (command === '/logs') {
+            if (sourceId !== config.chatId) return;
+            const lines = parseInt(args[1]) || 30;
+            const maxLines = Math.min(lines, 100); // Failsafe limit for Telegram max char length
+            exec(`pm2 logs --nostream --lines ${maxLines}`, (err, stdout, stderr) => {
+                let logOutput = stdout || stderr || "No logs found in PM2.";
+                // Sanitize backticks to prevent markdown code block breaking
+                logOutput = logOutput.replace(/`/g, "'");
+                // Safety trim for Telegram 4096 character limit
+                if (logOutput.length > 3900) {
+                    logOutput = "..." + logOutput.substring(logOutput.length - 3900);
+                }
+                reply(`📝 *PM2 Live Console Logs (Last ${maxLines} lines)*\n\n\`\`\`text\n${logOutput}\n\`\`\``);
+            });
+        }
+        else if (command === '/addanchorid') {
+            if (sourceId !== config.chatId) return;
+            
+            const repliedMsg = msgObject?.reply_to_message;
+            if (repliedMsg && repliedMsg.message_id && userMsgId) {
+                // Scenario A: User replied to a message
+                const id_from_del = repliedMsg.message_id;
+                const id_to_del = userMsgId;
+                
+                if (db) {
+                    await db.collection('system_config').updateOne(
+                        { _id: 'daily_anchor' }, 
+                        { $set: { id_from_del: id_from_del, id_to_del: id_to_del, date: getFormattedDate(new Date()) } }, 
+                        { upsert: true }
+                    );
+                    reply(`✅ *Anchor Manually Set via Reply!*\n\nFrom ID: ${id_from_del}\nTo ID: ${id_to_del}\n\nThese boundaries will be used for the next auto-wipe, or you can run /forceclear now.`);
+                } else {
+                    reply("⚠️ MongoDB not connected. Cannot save anchor.");
+                }
+            } else {
+                // Scenario B: User did NOT reply to a message, show prompt
+                if (userMsgId) {
+                    const kb = {
+                        inline_keyboard: [
+                            [{ text: "✅ Yes, Set THIS as End Anchor", callback_data: `setanch_${userMsgId}` }],
+                            [{ text: "❌ Cancel", callback_data: `cancel` }]
+                        ]
+                    };
+                    await sendTelegramDirect("⚠️ You didn't reply to a message.\n\nDo you want to push the old End Anchor to the Start Anchor position, and set **THIS** exact message as the new End Anchor?", kb);
+                }
+            }
+        }
+        else if (command === '/forceclear') {
+            if (sourceId !== config.chatId) return;
+            reply("🧹 *Force Clear Triggered!*\n\nExecuting bounded wipe now. Use /logs in a few seconds to see the results.");
+            runAutoWipe();
+        }
         else if (command === '/eval') {
             if (sourceId !== config.chatId) return; // "God Mode" strict security lock
             const evalCode = text.substring(5).trim();
@@ -1320,6 +1385,9 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
 /settings - Interactive Toggles
 /database - Clean up MongoDB
 /export - Get Excel file
+/logs [lines] - View live bot console logs
+/addanchorid - Set wipe boundaries
+/forceclear - Trigger Telegram chat wipe now
 /setproxy <link> - Set Telegram reverse proxy
 /update - Pull code from GitHub
 /rollback - Revert to previous code
@@ -1568,6 +1636,22 @@ async function processCallback(query, sock) {
     else if (action === 'setpusher') {
         pendingAction = { type: 'pusher_appid' };
         await editTelegramMessage(msgId, "🛠️ *Pusher Setup*\n\nPlease type your **Pusher App ID** in the chat:", { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "close" }]] });
+    }
+    else if (action === 'setanch') {
+        const currentMsgId = parseInt(parts[1]);
+        if (db && currentMsgId) {
+            const anchorDoc = await db.collection('system_config').findOne({ _id: 'daily_anchor' });
+            let id_to_del = currentMsgId;
+            // Fetch old End ID, set it to the new Start ID (default offset -100 if none exists)
+            let id_from_del = (anchorDoc && anchorDoc.id_to_del) ? anchorDoc.id_to_del : (id_to_del - 100);
+
+            await db.collection('system_config').updateOne(
+                { _id: 'daily_anchor' }, 
+                { $set: { id_from_del: id_from_del, id_to_del: id_to_del, date: getFormattedDate(new Date()) } }, 
+                { upsert: true }
+            );
+            await editTelegramMessage(msgId, `✅ *Anchor Manually Shifted!*\n\nFrom ID: ${id_from_del}\nTo ID: ${id_to_del}`, { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
+        }
     }
     else if (action === 'set') {
         const toggle = parts[1];
