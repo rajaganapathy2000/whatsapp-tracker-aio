@@ -498,7 +498,7 @@ async function setupTelegramCommands() {
         { command: 'update', description: 'Update bot from GitHub' },
         { command: 'rollback', description: 'Revert to previous code' },
         { command: 'logs', description: 'View live bot console logs' },
-        { command: 'addanchorid', description: 'Set wipe boundaries' },
+        { command: 'addanchorid', description: 'Set wipe boundaries manually' },
         { command: 'forceclear', description: 'Trigger Telegram chat wipe now' },
         { command: 'ping', description: 'Check bot health and uptime' },
         { command: 'setproxy', description: 'Set Telegram proxy link' },
@@ -930,7 +930,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
     const userMsgId = msgObject?.message_id;
 
     try {
-        // PENDING ACTION INTERCEPTOR (For Edit Name, Add Number, GitHub Config, Pusher Config)
+        // PENDING ACTION INTERCEPTOR (For Edit Name, Add Number, GitHub Config, Pusher Config, Anchor Editing)
         if (pendingAction && sourceId === config.chatId) {
             if (pendingAction.type === 'editname') {
                 contactsMap[pendingAction.num] = text.trim();
@@ -990,6 +990,30 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                 initPusher();
                 pendingAction = null;
                 reply("⚡ Pusher Real-Time WebSockets configured and activated successfully!");
+            } else if (pendingAction.type === 'edit_anchor_from' || pendingAction.type === 'edit_anchor_to') {
+                const newId = parseInt(text.trim());
+                if (isNaN(newId)) {
+                    reply("⚠️ Invalid number. Anchor edit canceled.");
+                } else {
+                    if (db) {
+                        const anchorDoc = await db.collection('system_config').findOne({ _id: 'daily_anchor' });
+                        let id_from_del = anchorDoc && anchorDoc.id_from_del ? anchorDoc.id_from_del : 0;
+                        let id_to_del = anchorDoc && anchorDoc.id_to_del ? anchorDoc.id_to_del : 0;
+
+                        if (pendingAction.type === 'edit_anchor_from') id_from_del = newId;
+                        if (pendingAction.type === 'edit_anchor_to') id_to_del = newId;
+
+                        await db.collection('system_config').updateOne(
+                            { _id: 'daily_anchor' }, 
+                            { $set: { id_from_del: id_from_del, id_to_del: id_to_del, date: getFormattedDate(new Date()) } }, 
+                            { upsert: true }
+                        );
+                        reply(`✅ *Anchor Manually Updated!*\n\nFrom ID: ${id_from_del}\nTo ID: ${id_to_del}\n\nUse /forceclear to execute the wipe now.`);
+                    } else {
+                        reply("⚠️ MongoDB not connected. Cannot save anchor.");
+                    }
+                }
+                pendingAction = null;
             }
             return;
         }
@@ -1332,6 +1356,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
                     const kb = {
                         inline_keyboard: [
                             [{ text: "✅ Yes, Set THIS as End Anchor", callback_data: `setanch_${userMsgId}` }],
+                            [{ text: "🛠️ Manual Mode", callback_data: `mananch` }],
                             [{ text: "❌ Cancel", callback_data: `cancel` }]
                         ]
                     };
@@ -1386,7 +1411,7 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
 /database - Clean up MongoDB
 /export - Get Excel file
 /logs [lines] - View live bot console logs
-/addanchorid - Set wipe boundaries
+/addanchorid - Set wipe boundaries manually
 /forceclear - Trigger Telegram chat wipe now
 /setproxy <link> - Set Telegram reverse proxy
 /update - Pull code from GitHub
@@ -1652,6 +1677,29 @@ async function processCallback(query, sock) {
             );
             await editTelegramMessage(msgId, `✅ *Anchor Manually Shifted!*\n\nFrom ID: ${id_from_del}\nTo ID: ${id_to_del}`, { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
         }
+    }
+    else if (action === 'mananch') {
+        // NEW: Load manual dashboard from DB
+        if (db) {
+            const anchorDoc = await db.collection('system_config').findOne({ _id: 'daily_anchor' });
+            const fromId = anchorDoc && anchorDoc.id_from_del ? anchorDoc.id_from_del : 'Not Set';
+            const toId = anchorDoc && anchorDoc.id_to_del ? anchorDoc.id_to_del : 'Not Set';
+
+            const kb = {
+                inline_keyboard: [
+                    [{ text: `✏️ Edit From ID (${fromId})`, callback_data: `editanch_from` }],
+                    [{ text: `✏️ Edit To ID (${toId})`, callback_data: `editanch_to` }],
+                    [{ text: "❌ Close", callback_data: `close` }]
+                ]
+            };
+            await editTelegramMessage(msgId, `🛠️ *Manual Anchor Dashboard*\n\nCurrent Boundaries:\n*From ID:* ${fromId}\n*To ID:* ${toId}`, kb);
+        }
+    }
+    else if (action === 'editanch') {
+        // NEW: Trigger interceptor for manual ID entry
+        const mode = parts[1]; // 'from' or 'to'
+        pendingAction = { type: `edit_anchor_${mode}` };
+        await editTelegramMessage(msgId, `⏳ Please type the exact numeric Message ID for the **${mode.toUpperCase()}** anchor in the chat now:`, { inline_keyboard: [[{ text: "❌ Cancel", callback_data: "cancel" }]] });
     }
     else if (action === 'set') {
         const toggle = parts[1];
