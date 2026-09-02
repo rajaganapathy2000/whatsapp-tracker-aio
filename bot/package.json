@@ -7,7 +7,7 @@
     "start": "node tracker.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "mongodb": "^6.5.0",
     "pino": "^8.1.0",
     "pusher": "^5.2.0",
