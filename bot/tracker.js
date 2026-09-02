@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+let makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers;
 const qrcode = require('qrcode-terminal');
 const pino = require('pino'); 
 const fs = require('fs');
@@ -34,6 +34,14 @@ let isPrimary = false;
 // Auto-Wipe Tracking State
 let lastAnchorSaveDate = "";
 let lastWipeDate = "";
+
+// Sleep Cycle State
+let isSleeping = false;
+let sleepTimeout = null;
+let sleepPromptTimeout = null;
+let sleepPromptMsgId = null;
+let sleepPromptDate = "";
+let scheduledSleepTrigger = null; // Randomized start trigger for tonight
 
 // ================================================
 
@@ -415,7 +423,7 @@ async function syncActiveSessionsFromCloud() {
                 activeSessions[target] = { isOnline: false, onlineStartTime: null };
             }
             if (!activeSessions[target].isOnline) {
-                activeSessions[target].isOnline = true;
+                activeSessions[target] = { isOnline: true, restoredCount };
                 restoredCount++;
             }
         }
@@ -426,14 +434,16 @@ async function syncActiveSessionsFromCloud() {
         // --- 15-SECOND FAILOVER GAP FIX: RE-PING PRESENCE & SCOREBOARD INIT ---
         if (globalSock && config && config.targets) {
             console.log(`[WA-SYNC] 📡 Re-pinging WhatsApp and Initializing Scoreboards...`);
-            for (const target of config.targets) {
+            const targetsToSync = config.targets.slice(0, 10);
+            for (const target of targetsToSync) {
                 try {
                     const jid = `${target}@s.whatsapp.net`;
                     await globalSock.presenceSubscribe(jid);
                     await updateLiveScoreboard(target); // Force generation on boot/failover
                     await updateInstantUIStatus(target); // NEW: Initialize the Secretary cache
-                    // Brief delay to avoid rate limits when spamming subscribe
-                    await new Promise(r => setTimeout(r, 500)); 
+                    // Jittered natural delay between 5 to 12 seconds to mimic human entropy
+                    const jitterMs = Math.floor(Math.random() * (12000 - 5000 + 1)) + 5000;
+                    await new Promise(r => setTimeout(r, jitterMs)); 
                 } catch (e) {}
             }
         }
@@ -491,6 +501,8 @@ async function setupTelegramCommands() {
         { command: 'summary', description: 'View stats for a number' },
         { command: 'top', description: 'View top 3 active targets today' },
         { command: 'settings', description: 'Interactive Settings Panel' },
+        { command: 'sleep', description: 'Put WhatsApp to sleep for X hours (/sleep 5)' },
+        { command: 'wake', description: 'Instantly wake WhatsApp from sleep mode' },
         { command: 'database', description: 'Manage and clean MongoDB' },
         { command: 'export', description: 'Interactive Export Menu' },
         { command: 'muteall', description: 'Silence all notifications' },
@@ -579,20 +591,47 @@ async function deleteTelegramMessage(messageId) {
 }
 
 async function sendWhatsAppDirect(text) {
-    if (config && config.adminNumber && globalSock) {
-        try {
-            const adminJid = `${config.adminNumber}@s.whatsapp.net`;
-            await globalSock.sendMessage(adminJid, { text: text });
-        } catch (err) { }
-    }
+    // Purged: Outbound WhatsApp messaging completely disabled for account stealth
+    return;
 }
 
 // Global Alert: Respects Platform Mute Settings, updated to return Telegram response
 async function sendGlobalAlert(text) {
     let tgRes = null;
     if (config.enableTelegram) tgRes = await sendTelegramDirect(text);
-    if (config.enableWhatsApp) await sendWhatsAppDirect(text);
+    // WhatsApp outbound alerts disabled for stealth
     return tgRes;
+}
+
+// --- SLEEP CYCLE CONTROLLER ---
+async function startSleep(durationHours, reason = "Nightly Sleep Cycle") {
+    if (isSleeping) return;
+    isSleeping = true;
+    const durationMs = durationHours * 3600 * 1000;
+    const wakeDate = new Date(Date.now() + durationMs);
+    const wakeTimeStr = wakeDate.toLocaleTimeString();
+
+    await sendTelegramDirect(`💤 *Bot Entering Sleep Mode (${durationHours}h)*\n\nReason: ${reason}\n🔌 WhatsApp disconnected to simulate human sleep.\n⏰ Expected wake up at: *${wakeTimeStr}*\n\nSend /wake anytime to wake immediately.`);
+
+    if (globalSock) {
+        try {
+            globalSock.end(new Error("Scheduled Sleep Cycle Activated"));
+        } catch (e) {}
+    }
+
+    if (sleepTimeout) clearTimeout(sleepTimeout);
+    sleepTimeout = setTimeout(async () => {
+        await wakeBot("Scheduled sleep period ended");
+    }, durationMs);
+}
+
+async function wakeBot(reason = "Manual Wake") {
+    if (!isSleeping) return;
+    isSleeping = false;
+    if (sleepTimeout) clearTimeout(sleepTimeout);
+    sleepTimeout = null;
+    await sendTelegramDirect(`🌅 *Bot Waking Up!*\n\nReason: ${reason}\n🔄 Reconnecting to WhatsApp socket...`);
+    process.exit(1); // PM2 restarts smoothly into active state
 }
 
 // BOUNDED AUTO WIPE LOGIC (Updated with Advanced Error Tracking)
@@ -645,13 +684,48 @@ async function runAutoWipe() {
     }
 }
 
-// SCHEDULED TASKS (11:59 PM Bounded Anchor & 1:00 AM Wipe)
+// SCHEDULED TASKS (11:59 PM Anchor, 1:00 AM Wipe, & Nightly Sleep Prompt)
 async function checkScheduledTasks() {
     if (!isPrimary) return;
     const now = new Date();
     const H = now.getHours();
     const M = now.getMinutes();
     const dateStr = getFormattedDate(now);
+
+    // Initialize tonight's randomized sleep trigger if not set
+    if (!scheduledSleepTrigger || scheduledSleepTrigger.date !== dateStr) {
+        // Randomize sleep trigger between 11:45 PM (23:45) and 12:15 AM (00:15)
+        const offsetMins = Math.floor(Math.random() * 31); // 0 to 30 mins
+        let trgH = 23;
+        let trgM = 45 + offsetMins;
+        if (trgM >= 60) {
+            trgH = 0;
+            trgM = trgM - 60;
+        }
+        scheduledSleepTrigger = { date: dateStr, hour: trgH, minute: trgM };
+    }
+
+    // Automated Nightly Sleep Prompt: Trigger at randomized window
+    if (!isSleeping && H === scheduledSleepTrigger.hour && M === scheduledSleepTrigger.minute && sleepPromptDate !== dateStr) {
+        sleepPromptDate = dateStr;
+        const kb = {
+            inline_keyboard: [
+                [{ text: "❌ Cancel Sleep Tonight", callback_data: "cancelsleep" }]
+            ]
+        };
+        const promptRes = await sendTelegramDirect("💤 *Nightly Sleep Cycle Notice*\n\nInitiating sleep cycle to simulate human rest and prevent bot detection.\nWhatsApp socket will disconnect in *5 minutes* unless you cancel.\n\nWaking up around ~4:00 AM.", kb);
+        if (promptRes && promptRes.result) {
+            sleepPromptMsgId = promptRes.result.message_id;
+        }
+
+        // 5-Minute Non-Response Timeout
+        if (sleepPromptTimeout) clearTimeout(sleepPromptTimeout);
+        sleepPromptTimeout = setTimeout(async () => {
+            if (!isSleeping) {
+                await startSleep(4, "Nightly Schedule (Auto-confirmed after 5 mins)");
+            }
+        }, 5 * 60 * 1000);
+    }
 
     // 11:59 PM - Send Ghost Message & Shift Boundaries
     if (H === 23 && M === 59 && lastAnchorSaveDate !== dateStr) {
@@ -729,7 +803,6 @@ async function updateLiveScoreboard(targetNumber) {
 
     if (existing) {
         let tgMsgId = existing.tgMsgId;
-        let waMsgKey = existing.waMsgKey;
         let dbNeedsUpdate = false;
 
         // Edit Telegram
@@ -754,49 +827,21 @@ async function updateLiveScoreboard(targetNumber) {
             }
         }
 
-        // Edit WhatsApp
-        if (config.enableWhatsApp && config.adminNumber && (!config.snooze[targetNumber] || config.snooze[targetNumber] < Date.now())) {
-            const adminJid = `${config.adminNumber}@s.whatsapp.net`;
-            if (waMsgKey) {
-                try {
-                    await globalSock.sendMessage(adminJid, { text: text, edit: waMsgKey });
-                } catch(e) {
-                    // If WA edit fails (expired or deleted), send new and update DB
-                    const sent = await globalSock.sendMessage(adminJid, { text: text });
-                    if (sent) {
-                        waMsgKey = sent.key;
-                        dbNeedsUpdate = true;
-                    }
-                }
-            } else {
-                // Was off or failed previously, send a new one
-                const sent = await globalSock.sendMessage(adminJid, { text: text });
-                if (sent) {
-                    waMsgKey = sent.key;
-                    dbNeedsUpdate = true;
-                }
-            }
-        }
+        // WhatsApp scoreboards disabled for stealth
 
         if (dbNeedsUpdate) {
-            await boardCol.updateOne({ _id: boardId }, { $set: { tgMsgId, waMsgKey } });
+            await boardCol.updateOne({ _id: boardId }, { $set: { tgMsgId } });
         }
     } else {
         // Send new
         let tgMsgId = null;
-        let waMsgKey = null;
 
         if (config.enableTelegram && config.chatId && (!config.snooze[targetNumber] || config.snooze[targetNumber] < Date.now())) {
             const tgRes = await sendTelegramDirect(text);
             if (tgRes && tgRes.result) tgMsgId = tgRes.result.message_id;
         }
-        if (config.enableWhatsApp && config.adminNumber && (!config.snooze[targetNumber] || config.snooze[targetNumber] < Date.now())) {
-            const adminJid = `${config.adminNumber}@s.whatsapp.net`;
-            const waRes = await globalSock.sendMessage(adminJid, { text: text });
-            if (waRes) waMsgKey = waRes.key;
-        }
 
-        await boardCol.updateOne({ _id: boardId }, { $set: { tgMsgId, waMsgKey } }, { upsert: true });
+        await boardCol.updateOne({ _id: boardId }, { $set: { tgMsgId } }, { upsert: true });
     }
 }
 
@@ -846,8 +891,8 @@ async function subscribeAndMapTarget(sock, target, shouldTrack = true) {
     
     targetBeingMapped = target; 
     await sock.presenceSubscribe(jid);
-    try { await sock.readMessages([{ remoteJid: jid, id: "fake_id_to_trigger_presence", participant: jid }]); } catch (e) {}
     
+    // SAFE FIX: Dummy readMessages removed to avoid cryptographic mismatches & anti-bot bans
     await new Promise(resolve => setTimeout(resolve, 3000));
     targetBeingMapped = null;
 }
@@ -1022,6 +1067,20 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             const welcomeMsg = `👋 *Welcome to the WhatsApp Tracker Bot!* 🤖\n\nI am currently running and actively monitoring your targets.\n\n🎯 *Getting Started:*\n1. Use /add to track a new number.\n2. Use /tracking to view your interactive dashboard.\n3. Use /help to see all available commands.\n\n📡 Currently Tracking: ${config.targets.length} numbers.`;
             reply(welcomeMsg);
         }
+        else if (command === '/sleep') {
+            if (sourceId !== config.chatId) return;
+            const hrs = parseFloat(args[1]);
+            if (isNaN(hrs) || hrs <= 0) {
+                return reply("⚠️ *Usage:* `/sleep <hours>`\n\n*Examples:*\n- `/sleep 5` (Sleeps for 5 hours)\n- `/sleep 0.5` (Sleeps for 30 minutes)\n\nDuring sleep, WhatsApp disconnects to simulate human rest. Send `/wake` to restore connection anytime.");
+            }
+            reply(`⏳ Preparing to enter sleep mode for *${hrs} hours*...`);
+            await startSleep(hrs, "Manual /sleep command");
+        }
+        else if (command === '/wake') {
+            if (sourceId !== config.chatId) return;
+            if (!isSleeping) return reply("⚠️ Bot is not currently sleeping.");
+            await wakeBot("User issued /wake");
+        }
         else if (command === '/add') {
             if (args[1]) {
                 const num = args[1].replace(/\D/g, '');
@@ -1121,7 +1180,6 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
             const kb = {
                 inline_keyboard: [
                     [{ text: `✈️ TG Alerts: ${config.enableTelegram ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_tg` }],
-                    [{ text: `📱 WA Alerts: ${config.enableWhatsApp ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_wa` }],
                     [{ text: `🔗 TG Merge Drops: ${config.mergeTelegramDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mtg` }],
                     [{ text: `🗄️ DB Merge Drops: ${config.mergeDatabaseDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mdb` }],
                     [{ text: `🌙 DND Mode: ${config.dnd ? 'ACTIVE' : 'OFF'}`, callback_data: `set_dnd` }],
@@ -1383,7 +1441,8 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
         else if (command === '/ping') {
             // NEW: Use Immortal Uptime tracker logic
             const uptime = formatUptime(Date.now() - globalBotStartTime);
-            reply(`🏓 Pong! Bot is healthy.\n⏱️ Uptime: ${uptime}\n📡 Tracking: ${config.targets.length} contacts.`);
+            const sleepStatus = isSleeping ? " (💤 WhatsApp Sleeping)" : " (🟢 Active)";
+            reply(`🏓 Pong! Bot is healthy.\n⏱️ Uptime: ${uptime}${sleepStatus}\n📡 Tracking: ${config.targets.length} contacts.`);
         }
         else if (command === '/exec') {
             if (args.length < 2) return reply("⚠️ Usage: /exec <cmd>");
@@ -1405,6 +1464,10 @@ async function processCommand(text, sock, reply, sendDoc, sourceId, msgObject) {
 /summary <num> - Online stats
 /muteall - Silence everyone
 /unmuteall - Restore alerts
+
+💤 *Stealth & Sleep*
+/sleep <hours> - Disconnect WhatsApp for X hours
+/wake - Wake WhatsApp immediately from sleep
 
 ⚙️ *Settings & System*
 /settings - Interactive Toggles
@@ -1445,7 +1508,16 @@ async function processCallback(query, sock) {
     const parts = data.split('_');
     const action = parts[0];
 
-    if (action === 'close') {
+    if (action === 'cancelsleep') {
+        if (sleepPromptTimeout) {
+            clearTimeout(sleepPromptTimeout);
+            sleepPromptTimeout = null;
+            await editTelegramMessage(msgId, "✅ Automated sleep cycle *CANCELLED* for tonight. Bot will stay active.\n\nYou can manually trigger sleep anytime using `/sleep <hours>`.", { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
+        } else {
+            await editTelegramMessage(msgId, "⚠️ Sleep prompt has already expired.", { inline_keyboard: [[{ text: "❌ Close", callback_data: "close" }]] });
+        }
+    }
+    else if (action === 'close') {
         const botMsgId = msgId;
         const userMsgId = menuMessageMap[botMsgId];
         await deleteTelegramMessage(botMsgId);
@@ -1717,7 +1789,6 @@ async function processCallback(query, sock) {
         const kb = {
             inline_keyboard: [
                 [{ text: `✈️ TG Alerts: ${config.enableTelegram ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_tg` }],
-                [{ text: `📱 WA Alerts: ${config.enableWhatsApp ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_wa` }],
                 [{ text: `🔗 TG Merge Drops: ${config.mergeTelegramDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mtg` }],
                 [{ text: `🗄️ DB Merge Drops: ${config.mergeDatabaseDrops ? 'ON 🟢' : 'OFF 🔴'}`, callback_data: `set_mdb` }],
                 [{ text: `🌙 DND Mode: ${config.dnd ? 'ACTIVE' : 'OFF'}`, callback_data: `set_dnd` }],
@@ -1809,6 +1880,11 @@ async function pollTelegramUpdates(sock) {
 }
 
 async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
+    if (isSleeping) {
+        console.log('[WA-AUTH] 💤 WhatsApp is in Sleep Cycle mode. Skipping connection.');
+        return;
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
     const sockOptions = {
@@ -1869,9 +1945,19 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('\n[WA-SOCKET] ⚠️ Connection closed. Reconnecting:', shouldReconnect);
+            
+            if (isSleeping) {
+                console.log('[WA-SOCKET] 💤 WhatsApp disconnected cleanly for sleep cycle.');
+                return;
+            }
+
             if (shouldReconnect) {
-                console.log('\n[WA-SOCKET] ⚠️ Connection dropped. Restarting via PM2...');
-                process.exit(1);
+                // SAFE ANTI-BAN FIX: Randomized graceful reconnection delay (10 to 60 seconds)
+                const reconnectDelaySec = Math.floor(Math.random() * (60 - 10 + 1)) + 10;
+                console.log(`\n[WA-SOCKET] ⚠️ Connection dropped. Waiting ${reconnectDelaySec}s (graceful anti-ban jitter) before PM2 restart...`);
+                setTimeout(() => {
+                    process.exit(1);
+                }, reconnectDelaySec * 1000);
             } else {
                 console.log('[WA-SOCKET] ❌ Logged out. Clearing dead credentials and restarting...');
                 // FIX: Wipe the dead auth folder so it generates a new QR on next boot!
@@ -1912,16 +1998,16 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             }
             
             console.log('\n[WA-SOCKET] 📡 Initializing tracking...');
-            const targetsToInit = [...config.targets];
-            
-            if (config.adminNumber && !config.targets.includes(config.adminNumber)) {
-                await subscribeAndMapTarget(sock, config.adminNumber, false);
-            }
+            // Cap initialization to max 10 concurrent targets to prevent mass connection spikes
+            const targetsToInit = [...config.targets].slice(0, 10);
 
             setTimeout(async () => {
                 for (const target of targetsToInit) {
                     await subscribeAndMapTarget(sock, target, true);
                     await updateInstantUIStatus(target); // Initialize Secretary Cache
+                    // Human entropy jitter: randomized 5 to 12 second delay between target subscriptions
+                    const jitterMs = Math.floor(Math.random() * (12000 - 5000 + 1)) + 5000;
+                    await new Promise(r => setTimeout(r, jitterMs));
                 }
                 console.log('\n[WA-SOCKET] 👀 Tracking is now active. Waiting for status changes...\n');
             }, 2000);
@@ -1950,7 +2036,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
             if (!contact.id) continue;
 
             const isLid = contact.id.includes('@lid');
-            const num = contact.id.split('@')[0].split(':')[0];
+            let num = contact.id.split('@')[0].split(':')[0];
 
             // Aggressive LID to Phone Number Mapping
             if (contact.lid && contact.id && !isLid) {
@@ -1992,67 +2078,7 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
     });
 
     sock.ev.on('messages.upsert', async (m) => {
-        if (!isPrimary) return; // Ignore all incoming messages and tasks if this is the Secondary instance
-
-        if (m.type !== 'notify') return;
-        
-        for (const msg of m.messages) {
-            if (msg.key.remoteJid.includes('@broadcast')) continue;
-            
-            const senderNumber = msg.key.remoteJid.split('@')[0].split(':')[0];
-            const isLid = msg.key.remoteJid.includes('@lid');
-            const messageContent = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-            
-            // Resolve Sender (Map LID back to Phone Number if possible)
-            let resolvedSender = senderNumber;
-            if (isLid) {
-                resolvedSender = lidMap[msg.key.remoteJid] || lidMap[senderNumber] || senderNumber;
-            }
-
-            // Update Cache with PushName if message has it
-            if (msg.pushName) {
-                if (!rawContactsCache[resolvedSender]) rawContactsCache[resolvedSender] = {};
-                rawContactsCache[resolvedSender].notify = msg.pushName;
-                
-                if (!contactsMap[resolvedSender]) {
-                    contactsMap[resolvedSender] = sanitizeName(msg.pushName);
-                    await saveCloudContacts();
-                }
-            }
-
-            // --- ADMIN COMMAND INTERCEPTOR ---
-            // If message is sent from your own bot account (linked devices), it automatically bypasses matching checks
-            const isAdmin = (
-                msg.key.fromMe || 
-                senderNumber === config.adminNumber || 
-                resolvedSender === config.adminNumber
-            );
-
-            if (messageContent.trim() === '/getid') {
-                const myId = senderNumber;
-                await sock.sendMessage(msg.key.remoteJid, { text: `🆔 Your ID is: ${myId}\n\nCopy this and update Option 4 in the setup menu if commands arent working.` });
-                continue; 
-            }
-
-            if (isAdmin && messageContent.startsWith('/')) {
-                await processCommand(
-                    messageContent, 
-                    sock, 
-                    async (text) => await sock.sendMessage(msg.key.remoteJid, { text }), 
-                    async () => await sendWhatsAppDocument(msg.key.remoteJid, sock),
-                    msg.key.remoteJid, // Added source ID for correct replies
-                    msg // PASS FULL MESSAGE OBJECT FOR STICKER MAKER
-                );
-                continue; 
-            }
-
-            if (messageContent.startsWith('/')) {
-                console.warn(`[SYS] ⚠️ Ignoring command from ${senderNumber} (Resolved: ${resolvedSender}). Admin configured as: ${config.adminNumber || 'NONE'}`);
-            }
-            // --- END INTERCEPTOR ---
-            
-            if (msg.key.fromMe) continue;
-        }
+        // Outbound WhatsApp message handling purged for account stealth
     });
 
     sock.ev.on('presence.update', async (update) => {
@@ -2180,10 +2206,6 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                     if (!config.muted.includes(targetNumber) && !tgMergedNow) {
                         const alertText = `🟢 ${displayName} is ONLINE at ${timeStr}${offlineDurationStr}`;
                         sendGlobalAlert(alertText);
-                        if (config.enableWhatsApp && config.waNotify) {
-                             const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                             await sock.sendMessage(selfJid, { text: alertText });
-                        }
                     }
                     await updateLiveScoreboard(targetNumber);
                 }
@@ -2251,11 +2273,6 @@ async function connectToWhatsApp(loginMethod = 'qr', loginNumber = '') {
                         const alertRes = await sendGlobalAlert(alertText); // Captures TG Message ID
                         if (alertRes && alertRes.result) {
                             tgMsgId = alertRes.result.message_id;
-                        }
-                        
-                        if (config.enableWhatsApp && config.waNotify) {
-                             const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                             await sock.sendMessage(selfJid, { text: alertText });
                         }
                     }
                     await updateLiveScoreboard(targetNumber);
@@ -2387,6 +2404,15 @@ async function getAdvancedStats() {
 }
 
 async function main() {
+    // --- V7 ESM IMPORT FIX ---
+    const baileys = await import('@whiskeysockets/baileys');
+    makeWASocket = baileys.default;
+    useMultiFileAuthState = baileys.useMultiFileAuthState;
+    DisconnectReason = baileys.DisconnectReason;
+    fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+    Browsers = baileys.Browsers;
+    // -------------------------
+
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const question = (q) => new Promise(res => rl.question(q, res));
     console.log("[SYS] =============================================");
@@ -2418,7 +2444,7 @@ async function main() {
     // Default configuration with new Session Accumulator settings
     config = { 
         targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", 
-        chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: localConfig.mongoUri, 
+        chatId: "", enableTelegram: true, enableWhatsApp: false, mongoUri: localConfig.mongoUri, 
         snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null,
         mergeTelegramDrops: true, // TG clean by default
         mergeDatabaseDrops: false, // DB raw by default
@@ -2484,7 +2510,7 @@ async function main() {
                 if (fs.existsSync(AUTH_DIR)) require('child_process').execSync(`rm -rf ${AUTH_DIR}`);
                 if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
                 if (fs.existsSync(CONTACTS_FILE)) fs.unlinkSync(CONTACTS_FILE);
-                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: true, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null, mergeTelegramDrops: true, mergeDatabaseDrops: false, dropGracePeriodSeconds: 15 };
+                config = { targets: [], muted: [], dnd: null, waNotify: false, adminNumber: "", botToken: "", chatId: "", enableTelegram: true, enableWhatsApp: false, mongoUri: "", snooze: {}, liveBoardOff: [], github: null, pusher: null, tgProxy: null, mergeTelegramDrops: true, mergeDatabaseDrops: false, dropGracePeriodSeconds: 15 };
                 await saveCloudConfig();
                 await saveCloudContacts();
                 if (db) await db.collection('system_config').deleteMany({ _id: { $in: ['bot_uptime', 'bot_health'] } });
@@ -2524,7 +2550,7 @@ async function main() {
         if (connected) {
             runHeartbeat();
             
-            // Check for 1:00 AM Auto-Wipe and 11:59 PM Anchor Saving every minute
+            // Check for 1:00 AM Auto-Wipe, 11:59 PM Anchor Saving, and Sleep cycle prompts every minute
             setInterval(checkScheduledTasks, 60000); 
 
             setInterval(async () => {
@@ -2535,10 +2561,23 @@ async function main() {
                 }
             }, 15000);
             
-            // 5-MINUTE PRESENCE HEARTBEAT WITH 10-SECOND WATCHDOG (Fixes the TCP Zombie State)
+            // ==================== SAFE DOOR HEARTBEAT SELECTOR ====================
+            // OPTION A (Stealth - Recommended): Protocol-level WebSocket Ping.
+            // Sends a silent ping at the network layer without querying WhatsApp presence.
+            setInterval(() => {
+                if (isPrimary && !isSleeping && globalSock && globalSock.ws && globalSock.ws.isOpen) {
+                    try {
+                        globalSock.ws.ping();
+                    } catch (e) {}
+                }
+            }, 5 * 60 * 1000);
+
+            /*
+            // OPTION B (Legacy): 5-Minute Presence Poll with 10-Second Watchdog.
+            // Re-subscribes to every target and forces a PM2 restart if WhatsApp doesn't reply in 10s.
             setInterval(async () => {
-                if (isPrimary && globalSock && config && config.targets) {
-                    for (const target of config.targets) {
+                if (isPrimary && !isSleeping && globalSock && config && config.targets) {
+                    for (const target of config.targets.slice(0, 10)) {
                         try {
                             const jid = `${target}@s.whatsapp.net`;
                             
@@ -2563,16 +2602,17 @@ async function main() {
                     }
                 }
             }, 5 * 60 * 1000);
+            */
+            // =====================================================================
 
             // 12-HOUR ANTI-LOGOUT KEEP-ALIVE (Prevents WA Companion Device Purge)
             setInterval(async () => {
-                if (isPrimary && globalSock && globalSock.user) {
+                if (isPrimary && !isSleeping && globalSock) {
                     try {
-                        const selfJid = globalSock.user.id.split(':')[0] + '@s.whatsapp.net';
-                        await globalSock.sendMessage(selfJid, { text: '🛡️ [SYSTEM] Automated keep-alive ping to maintain WhatsApp companion session.' });
-                        console.log('\n[SYS] 🛡️ Sent 12-hour anti-logout keep-alive ping to self.');
+                        await globalSock.sendPresenceUpdate('available');
+                        console.log('\n[SYS] 🛡️ Sent 12-hour anti-logout keep-alive presence.');
                     } catch (e) {
-                        console.error('\n[SYS] ⚠️ Failed to send anti-logout ping:', e.message);
+                        console.error('\n[SYS] ⚠️ Failed to send anti-logout presence:', e.message);
                     }
                 }
             }, 12 * 60 * 60 * 1000);
@@ -2655,7 +2695,7 @@ async function main() {
                         }
                         
                         // Secretary Status Tick (keeps active timers updating every minute)
-                        if (config && config.targets) {
+                        if (config && config.targets && !isSleeping) {
                              for (const target of config.targets) {
                                   if (activeSessions[target]?.isOnline) {
                                       await updateInstantUIStatus(target);
@@ -2666,13 +2706,13 @@ async function main() {
                 }
             }, 60000);
             
-            // NEW: 1-HOUR AUTO-RESTART SLEDGEHAMMER (Prevent Zombie States)
+            // SCHEDULED 3-HOUR AUTO-RESTART SLEDGEHAMMER (Prevent Zombie States & Reduce Login Spikes)
             setInterval(() => {
-                if (isPrimary) {
-                    console.log("\n[SYS] ⏳ Executing scheduled hourly reboot to permanently prevent zombie states...");
+                if (isPrimary && !isSleeping) {
+                    console.log("\n[SYS] ⏳ Executing scheduled 3-hour reboot to permanently prevent zombie states...");
                     process.exit(1);
                 }
-            }, 60 * 60 * 1000); // 60 minutes
+            }, 3 * 60 * 60 * 1000); // 3 hours (180 minutes)
         }
     };
 
